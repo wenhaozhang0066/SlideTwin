@@ -135,9 +135,16 @@ def replay_gif(
 
 
 def coverage_heatmap(
-    ov: Overview, tissue: TissueMap, views: Sequence[SeenView], regions: Sequence[Region] = ()
+    ov: Overview,
+    tissue: TissueMap,
+    views: Sequence[SeenView],
+    regions: Sequence[Region] = (),
+    *,
+    screen: float = SCREEN_MAG,
+    confirm: float = CONFIRM_MAG,
 ) -> Image.Image:
-    """Tissue cells coloured by the highest magnification they were seen at (red: never)."""
+    """Tissue cells coloured by the highest magnification they were seen at (red: never), with
+    the protocol's screening and confirmation magnifications as the steps."""
     best = np.zeros(tissue.shape, dtype=np.float64)
     for v in sorted(views, key=lambda v: v.mag):
         rs, cs = tissue.cells_in(v.bbox)
@@ -145,9 +152,9 @@ def coverage_heatmap(
     colours = np.zeros((*tissue.shape, 4), dtype=np.uint8)
     for cond, colour in [
         (tissue.mask & (best == 0), UNSEEN),
-        (tissue.mask & (best > 0) & (best < SCREEN_MAG * 0.999), LOW),
-        (tissue.mask & (best >= SCREEN_MAG * 0.999) & (best < CONFIRM_MAG * 0.999), SCREEN),
-        (tissue.mask & (best >= CONFIRM_MAG * 0.999), CONFIRM),
+        (tissue.mask & (best > 0) & (best < screen * 0.999), LOW),
+        (tissue.mask & (best >= screen * 0.999) & (best < confirm * 0.999), SCREEN),
+        (tissue.mask & (best >= confirm * 0.999), CONFIRM),
     ]:
         colours[cond] = (*colour, 150)
     # The grid covers whole cells; crop the part beyond the slide before scaling to the overview.
@@ -168,9 +175,9 @@ def coverage_heatmap(
         draw,
         [
             ("tissue never seen", UNSEEN),
-            ("seen below 10x only", LOW),
-            ("seen at 10x", SCREEN),
-            ("seen at 20x or more", CONFIRM),
+            (f"seen below {screen:g}x only", LOW),
+            (f"seen at {screen:g}x", SCREEN),
+            (f"seen at {confirm:g}x or more", CONFIRM),
         ],
     )
     return out

@@ -1,4 +1,4 @@
-// Unit tests for the reading UI's display geometry: `node --test tests/web/`.
+// Unit tests for the reading UI's display geometry: `node --test tests/web/*.test.mjs`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

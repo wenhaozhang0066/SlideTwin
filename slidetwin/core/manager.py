@@ -54,11 +54,17 @@ class SessionManager:
         max_sessions: int = 16,
         idle_ttl_s: float = 7200.0,
         max_age_s: float = 28800.0,
+        evict_idle_s: float = 900.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if max_sessions < 1:
             raise ValueError("max_sessions must be >= 1")
-        for name, value in (("idle_ttl_s", idle_ttl_s), ("max_age_s", max_age_s)):
+        checked = (
+            ("idle_ttl_s", idle_ttl_s),
+            ("max_age_s", max_age_s),
+            ("evict_idle_s", evict_idle_s),
+        )
+        for name, value in checked:
             if not (math.isfinite(value) and value > 0):
                 raise ValueError(f"{name} must be a positive number")
         self.registry = registry
@@ -67,6 +73,9 @@ class SessionManager:
         self.max_sessions = max_sessions
         self.idle_ttl_s = idle_ttl_s
         self.max_age_s = max_age_s
+        # When every slot is taken, a session idle this long may give its slot to a new one, so
+        # abandoned tabs cannot block a public server until the idle TTL. Its log stays on disk.
+        self.evict_idle_s = evict_idle_s
         self._clock = clock
         self._sessions: dict[str, _Entry] = {}
         self._pending = 0  # slots reserved by creations in progress
@@ -111,6 +120,8 @@ class SessionManager:
             ended = self._sweep_locked()
             if len(self._sessions) + self._pending >= self.max_sessions:
                 ended += self._evict_closed_locked()
+            if len(self._sessions) + self._pending >= self.max_sessions:
+                ended += self._evict_idle_locked()
             full = len(self._sessions) + self._pending >= self.max_sessions
             if not full:
                 self._pending += 1
@@ -118,7 +129,7 @@ class SessionManager:
         if full:
             raise TooManySessions(
                 f"All {self.max_sessions} session slots are in use.",
-                hint="Submit the report of an open session, or try again later.",
+                hint="Submit the report of an open session, or try again in a few minutes.",
             )
         session_id = uuid.uuid4().hex
         images = self._image_store(session_id)
@@ -237,6 +248,16 @@ class SessionManager:
         closed = sorted((e.last_used, k) for k, e in self._sessions.items() if e.session.closed)
         excess = len(self._sessions) + self._pending - self.max_sessions + 1
         return [self._sessions.pop(k).session for _, k in closed[:excess]]
+
+    def _evict_idle_locked(self) -> list[Session]:
+        """The least recently used session idle for at least `evict_idle_s`, if any."""
+        now = self._clock()
+        idle = sorted(
+            (e.last_used, k)
+            for k, e in self._sessions.items()
+            if now - e.last_used >= self.evict_idle_s
+        )
+        return [self._sessions.pop(k).session for _, k in idle[:1]]
 
     @staticmethod
     def _dispose(sessions: list[Session]) -> None:

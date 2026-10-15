@@ -106,14 +106,42 @@ def test_touching_polygons_merge_into_one_deposit() -> None:
     hole = Region("exclusion", np.array(square(20, 20, 40), dtype=float))
     lesions = build_lesions([a, b, far, hole], grid_um=4.0)
     big, small = lesions.deposits
-    assert big.largest_dimension_mm == pytest.approx(math.hypot(200, 100) / 1000, abs=1e-6)
-    assert big.area_mm2 == pytest.approx(0.02 - 0.0016, rel=0.1)  # minus the exclusion
+    # The exclusion lies on this deposit, so its size comes from the grid (within one cell).
+    assert big.largest_dimension_mm == pytest.approx(math.hypot(200, 100) / 1000, abs=0.004)
+    assert big.area_mm2 == pytest.approx(0.02 - 0.0016, rel=0.01)  # minus the exclusion
     assert small.largest_dimension_mm == pytest.approx(math.hypot(50, 50) / 1000, abs=1e-6)
     assert lesions.largest_mm == big.largest_dimension_mm
     assert lesions.hits(BBox(150, 50, 160, 60))
     assert not lesions.hits(BBox(30, 30, 50, 50))  # inside the exclusion
     assert not lesions.hits(BBox(500, 500, 600, 600))
     assert build_lesions([hole]).deposits == ()
+
+
+def test_cells_follow_their_centres_on_every_side() -> None:
+    # 12.8-35.2 um on a 4 um grid is cells 3.2-8.8 (plus the 8 um margin of the raster):
+    # exactly the cells whose centres are inside, 3-8 in both directions.
+    sq = Region("tumor", np.array(square(12.8 + 1000, 12.8 + 1000, 22.4), dtype=float))
+    anchor = Region("tumor", np.array(square(1000, 1000, 1), dtype=float))  # fixes the origin
+    lesions = build_lesions([anchor, sq], grid_um=4.0)
+    rows, cols = np.nonzero(lesions.mask)
+    x0, y0 = lesions.origin_um
+    assert (cols.min() * 4 + x0, cols.max() * 4 + x0) == (1012.0, 1032.0)  # cells 3..8
+    assert (rows.min() * 4 + y0, rows.max() * 4 + y0) == (1012.0, 1032.0)
+    assert lesions.area_cells == 36
+
+
+def test_an_exclusion_can_split_a_deposit_and_tiny_polygons_count() -> None:
+    bar = Region("tumor", np.array([(0, 0), (300, 0), (300, 100), (0, 100)], dtype=float))
+    cut = Region(
+        "exclusion", np.array([(140, -10), (160, -10), (160, 110), (140, 110)], dtype=float)
+    )
+    speck = Region("tumor", np.array([(1001, 1001), (1003, 1001), (1002, 1003)], dtype=float))
+    lesions = build_lesions([bar, cut, speck], grid_um=4.0)
+    left, right, tiny = lesions.deposits
+    for part in (left, right):
+        assert part.largest_dimension_mm == pytest.approx(math.hypot(140, 100) / 1000, abs=0.006)
+    assert tiny.area_mm2 == pytest.approx(2e-6)  # a 2 um2 triangle, smaller than one cell
+    assert tiny.largest_dimension_mm == pytest.approx(math.hypot(1, 2) / 1000, abs=1e-6)
 
 
 # --- metrics on a real reading -------------------------------------------------------------------
@@ -213,15 +241,98 @@ def test_cli_requires_its_arguments(capsys: pytest.CaptureFixture[str]) -> None:
 # --- isolation ---------------------------------------------------------------------------------
 
 
+def _imports_eval(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name.split(".")[:2] == ["slidetwin", "eval"] for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level == 0 and module.split(".")[:2] == ["slidetwin", "eval"]:
+                return True
+            if (
+                node.level == 0
+                and module == "slidetwin"
+                and any(a.name == "eval" for a in node.names)
+            ):
+                return True
+            if node.level > 0 and (
+                module.split(".")[0] == "eval" or any(a.name == "eval" for a in node.names)
+            ):
+                return True
+    return False
+
+
 def test_nothing_that_serves_sessions_imports_the_evaluation_code() -> None:
+    for text in [
+        "import slidetwin.eval.metrics",
+        "from slidetwin.eval import metrics",
+        "from slidetwin import eval",
+        "from ..eval import metrics",
+        "from .. import eval",
+    ]:
+        assert _imports_eval(ast.parse(text)), text
+    assert not _imports_eval(ast.parse("from slidetwin.core import evaluation"))
     package = REPO_ROOT / "slidetwin"
-    for sub in ["core", "api", "mcp_server", "agents"]:
-        for path in (package / sub).rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                names = []
-                if isinstance(node, ast.Import):
-                    names = [a.name for a in node.names]
-                elif isinstance(node, ast.ImportFrom):
-                    names = [node.module or ""]
-                assert not any(n.startswith("slidetwin.eval") for n in names), path
+    served = [package / "serve.py", package / "fetch_slides.py"]
+    for sub in ["core", "api", "mcp_server", "agents", "web"]:
+        served += list((package / sub).rglob("*.py"))
+    for path in served:
+        assert not _imports_eval(ast.parse(path.read_text(encoding="utf-8"))), path
+
+
+def _reading(
+    confirm_min: float, report: dict[str, object]
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    header = {
+        "slide": {"id": "s"},
+        "actor": "agent:x",
+        "profile": {"id": "viewer"},
+        "protocol": {
+            "content": {
+                "coverage": {"at_or_above_mag": 10},
+                "magnification": {"confirm_min": confirm_min},
+            }
+        },
+    }
+    view = {"type": "view", "view_id": "v_0002", "mag": 20.0, "bbox_um": [0, 0, 100, 100]}
+    events = [
+        {"seq": 1, "action": "create_session", "t_virtual_s": 0.3, "observation": None},
+        {"seq": 2, "action": "set_magnification", "t_virtual_s": 1.1, "observation": view},
+        {
+            "seq": 3,
+            "action": "measure",
+            "t_virtual_s": 4.1,
+            "observation": {"type": "measurement", "measurement_id": "m_0001", "length_um": 300.0},
+        },
+        {
+            "seq": 4,
+            "action": "submit_report",
+            "t_virtual_s": 4.1,
+            "params": {"report": report},
+            "observation": {"coverage": {"fraction": 0.5}, "violations": 0},
+            "error": None,
+        },
+    ]
+    return header, events
+
+
+def test_metrics_follow_the_protocol_and_the_stated_size() -> None:
+    lesion = build_lesions(
+        [Region("tumor", np.array(square(10, 10, 50), dtype=float))], grid_um=4.0
+    )
+    claims = [{"id": "m1", "type": "measurement", "text": "x", "measurement_id": "m_0001"}]
+    report = {
+        "conclusion": {"metastasis": "present", "category": "micro", "largest_deposit_mm": 0.07},
+        "claims": claims,
+    }
+    m = evaluate(*_reading(20, report), {"label": "tumor", "category": "micro"}, lesion)
+    assert m.lesion_seen_confirm is True
+    assert m.reported_size_mm == 0.07  # the stated size wins over the cited 0.3 mm measurement
+    stricter = evaluate(*_reading(40, report), {"label": "tumor"}, lesion)
+    assert stricter.lesion_seen_confirm is False  # a 20x view is not enough under confirm_min 40
+    unstated = {**report, "conclusion": {**report["conclusion"], "largest_deposit_mm": None}}
+    assert evaluate(*_reading(20, unstated), {"label": "tumor"}, lesion).reported_size_mm == 0.3
+    negative = {"conclusion": {"metastasis": "absent", "category": "none"}, "claims": []}
+    n = evaluate(*_reading(20, negative), {"label": "normal", "category": "negative"})
+    assert (n.conclusion_correct, n.category_correct, n.truth_category) == (True, True, "none")

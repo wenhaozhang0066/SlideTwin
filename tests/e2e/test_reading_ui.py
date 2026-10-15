@@ -293,3 +293,102 @@ def test_bad_alias_is_refused_in_the_form(server: str, browser: Any) -> None:
     expect(page.locator("#start")).to_be_visible()
     assert page.locator("#alias").evaluate("el => el.validity.patternMismatch")
     page.close()
+
+
+def _start(page: Any, server: str, alias: str) -> None:
+    page.goto(server + "/")
+    expect(page.locator("#slide-select option")).to_have_count(1)
+    page.fill("#alias", alias)
+    page.click("#start-button")
+    expect(page.locator("#negative-scope option")).to_have_count(3)
+    _idle(page)
+
+
+def _log(server: str, page: Any) -> list[dict[str, Any]]:
+    href = page.locator("#download").get_attribute("href")
+    text = page.request.get(server + href).text()
+    return [json.loads(line) for line in text.splitlines()[1:]]
+
+
+def test_review_regressions_in_the_browser(server: str, browser: Any) -> None:
+    """The UI review's scenarios (M3): views and marks stay in step with the session."""
+    page = browser.new_page(viewport={"width": 1700, "height": 1150})
+    problems: list[str] = []
+    page.on("pageerror", lambda e: problems.append(str(e)))
+    _start(page, server, "review")
+    overlay = page.locator("#overlay-canvas")
+    info = page.locator("#view-info")
+    _changes(page, lambda: page.keyboard.press("4"))
+
+    # A label form left open when the view changes does not save on the new view.
+    page.keyboard.press("p")
+    overlay.click(position={"x": 100, "y": 100})
+    expect(page.locator("#label-form")).to_be_visible()
+    _changes(page, lambda: page.locator("#mag-buttons button[data-mag='20']").click())
+    expect(page.locator("#label-form")).to_be_hidden()
+    expect(page.locator("#message")).to_contain_text("not saved")
+
+    # The tool button hands the keyboard to the view; right clicks place nothing.
+    page.locator("#tool-buttons button[data-tool='measure']").click()
+    page.keyboard.press("Space")
+    page.keyboard.press("Shift+ArrowRight")
+    page.keyboard.press("Space")
+    expect(page.locator("#message")).to_contain_text("Measured 25 µm")  # 50 view px at 0.5 um/px
+    overlay.click(position={"x": 50, "y": 50}, button="right")
+    overlay.click(position={"x": 90, "y": 50}, button="right")
+
+    # Keys pressed while Help is open do nothing to the view.
+    before = info.inner_text()
+    page.click("#help-button")
+    for key in ["ArrowDown", "4", "s"]:
+        page.keyboard.press(key)
+    page.keyboard.press("Escape")
+    expect(page.locator("#help")).to_be_hidden()
+    assert info.inner_text() == before
+
+    # A view whose image cannot be loaded is not used for measuring; R loads it again.
+    blocked = "**/views/*.jpg"
+    page.route(blocked, lambda route: route.abort())
+    page.locator("#tool-buttons button[data-tool='navigate']").click()
+    overlay.focus()
+    page.keyboard.press("d")
+    expect(page.locator("#message")).to_contain_text("could not be shown", timeout=10000)
+    _idle(page)
+    page.keyboard.press("m")
+    overlay.click(position={"x": 100, "y": 100})
+    overlay.click(position={"x": 300, "y": 100})
+    page.unroute(blocked)
+    page.keyboard.press("r")
+    _idle(page)
+    expect(page.locator("#message")).to_be_hidden()
+
+    # Enter in a statement does not submit the report; sizes take any precision.
+    page.click("#add-finding")
+    statement = page.locator("#claims li input").first
+    statement.fill("tumour cells")
+    statement.press("Enter")
+    page.fill("#r-largest", "0.205")
+    page.locator("#r-largest").press("Enter")
+    expect(page.locator("#receipt")).to_be_hidden()
+    page.select_option("#r-metastasis", "present")
+    page.select_option("#r-category", "micro")
+    page.select_option("#r-ene", "absent")
+    page.click("#submit-report")
+    expect(page.locator("#receipt")).to_contain_text("Report accepted")
+
+    # Switching language after the report keeps the session's controls off.
+    page.click("#lang-switch")
+    expect(page.locator("#receipt")).to_contain_text("报告已接收")
+    assert page.locator("#mag-buttons button:enabled").count() == 0
+    assert page.locator("#claims button:enabled").count() == 0
+
+    events = _log(server, page)
+    actions = [e["action"] for e in events]
+    assert actions.count("measure") == 1  # the measurement on the unseen view was refused
+    assert "annotate" not in actions  # the label form on the old view was dropped
+    report = next(e for e in events if e["action"] == "submit_report")
+    assert report["params"]["report"]["conclusion"]["largest_deposit_mm"] == 0.205
+    clients = [e["client"] for e in events if e["client"]]
+    assert all(c["ui_version"].startswith("0.") for c in clients)
+    assert problems == []
+    page.close()

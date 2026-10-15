@@ -159,6 +159,7 @@ def test_slide_errors_name_the_id_not_the_file(make_client: ClientFactory, tmp_p
         slide_dir=slides,
         log_dir=tmp_path / "logs",
         cache_dir=None,
+        allowed_hosts=("testserver",),
     )
     with TestClient(create_app(settings)) as client:
         resp = client.post("/api/sessions", json={"slide_id": "s42", "actor": "agent:t"})

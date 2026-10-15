@@ -95,20 +95,33 @@ def test_known_costs_are_recovered() -> None:
     fitted = fit(sessions, {**CURRENT, "view_render_s": 0.3}, n_boot=100)
     for key, true in TRUE.items():
         assert fitted.params[key] == pytest.approx(true, rel=0.15, abs=0.08), key
+        if key == "view_render_s":
+            assert key not in fitted.ci95  # given, not fitted: no interval
+            continue
         lo, hi = fitted.ci95[key]
         assert lo <= fitted.params[key] <= hi
     assert "pan_per_viewport_s" in fitted.yaml()
     assert fitted.markdown().count("\n") == 2 + len(TRUE)
 
 
-def test_agents_breaks_and_failures_give_no_intervals() -> None:
-    header, events = simulated_session(0, n=10)
+def test_breaks_automatic_actions_failures_and_agents_give_no_intervals() -> None:
+    header = {"actor": "human:sim"}
+    centre = (50_000.0, 50_000.0)
+    events = [
+        _event(1, "create_session", 0, centre),
+        {**_event(2, "get_thumbnail", 120, centre), "client": {"input": "auto"}},  # by the UI
+        _event(3, "measure", 5_120, centre),  # 5 s
+        _event(4, "measure", 305_120, centre),  # a 300 s break
+        _event(5, "pan", 306_000, centre, error={"code": "OUTSIDE_VIEW"}),  # failed
+        _event(6, "measure", 310_000, centre),  # 4 s after the failed attempt
+    ]
+    got = intervals(header, events, max_gap_s=60)
+    assert [(iv.action, iv.seconds) for iv in got] == [("measure", 5.0), ("measure", 4.0)]
+    assert len(intervals(header, events, max_gap_s=1e9)) == 3  # the break, if allowed
     assert intervals({"actor": "agent:x"}, events) == []
     assert intervals(header, []) == []
-    got = intervals(header, events, max_gap_s=60)
-    assert all(iv.seconds <= 60 for iv in got)
-    assert len(got) <= 8  # the failed last pan is not an interval
-    empty = fit([({"actor": "agent:x"}, events)], CURRENT)
+    _, sim = simulated_session(0, n=10)
+    empty = fit([({"actor": "agent:x"}, sim)], CURRENT)
     assert empty.sessions == 0
     assert empty.params == {k: v for k, v in CURRENT.items() if k != "kind"}
     assert Interval("pan", 1.0).viewports == 0.0

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -20,9 +21,20 @@ import yaml
 from slidetwin.core.geometry import BBox
 from slidetwin.eval.annotations import Lesions
 
-SCREEN_MAG = 10.0
+SCREEN_MAG = 10.0  # defaults; a reading is judged by the protocol in its log header
 CONFIRM_MAG = 20.0
 _EPS = 1e-6
+# The manifest may label a negative slide's category; a report says "none".
+_NO_CATEGORY = {"negative", "normal", "none"}
+
+
+def thresholds(header: Mapping[str, Any]) -> tuple[float, float]:
+    """(screening, confirmation) magnifications of the protocol the reading was checked
+    against: coverage counts at the first (E4), findings need the second (E2)."""
+    content = (header.get("protocol") or {}).get("content") or {}
+    screen = (content.get("coverage") or {}).get("at_or_above_mag", SCREEN_MAG)
+    confirm = (content.get("magnification") or {}).get("confirm_min", CONFIRM_MAG)
+    return float(screen), float(confirm)
 
 
 def load_truth(manifest: Path) -> dict[str, dict[str, Any]]:
@@ -138,6 +150,9 @@ def evaluate(
     conclusion = (report or {}).get("conclusion") or {}
     label = truth.get("label")
     truth_category = truth.get("category")
+    if isinstance(truth_category, str) and truth_category.lower() in _NO_CATEGORY:
+        truth_category = "none"
+    screen_mag, confirm_mag = thresholds(header)
     expected = _truth_metastasis(label)
     metastasis = conclusion.get("metastasis")
     category = conclusion.get("category")
@@ -149,7 +164,10 @@ def evaluate(
         for c in claims
         if c.get("type") == "measurement" and c.get("measurement_id") in lengths
     ]
-    reported = max(measured) if measured else conclusion.get("largest_deposit_mm")
+    # The size the reader states; failing that, the largest measurement the report cites.
+    reported = conclusion.get("largest_deposit_mm")
+    if reported is None and measured:
+        reported = max(measured)
 
     by_id = {v.view_id: v for v in views}
     findings = [c for c in claims if c.get("type") == "finding"]
@@ -163,11 +181,11 @@ def evaluate(
         size_error_mm=None,
     )
     if lesions is not None and lesions.deposits:
-        screen = [v for v in views if v.mag >= SCREEN_MAG * (1 - _EPS) and lesions.hits(v.bbox)]
+        screen = [v for v in views if v.mag >= screen_mag * (1 - _EPS) and lesions.hits(v.bbox)]
         lesion_metrics.update(
             lesion_seen_screen=bool(screen),
-            lesion_seen_confirm=any(v.mag >= CONFIRM_MAG * (1 - _EPS) for v in screen),
-            lesion_share_screen=round(lesion_share(lesions, views, SCREEN_MAG), 4),
+            lesion_seen_confirm=any(v.mag >= confirm_mag * (1 - _EPS) for v in screen),
+            lesion_share_screen=round(lesion_share(lesions, views, screen_mag), 4),
             time_to_lesion_s=min((v.t_s for v in screen), default=None),
             findings_on_lesion=sum(
                 any(lesions.hits(by_id[i].bbox) for i in c.get("evidence") or [] if i in by_id)

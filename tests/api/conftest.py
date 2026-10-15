@@ -61,6 +61,7 @@ def settings(tmp_path: Path, manifest: Path, slide_dir: Path) -> Settings:
         max_sessions=8,
         idle_ttl_s=3600.0,
         max_body_bytes=200_000,
+        allowed_hosts=("testserver",),  # the TestClient's Host
     )
 
 

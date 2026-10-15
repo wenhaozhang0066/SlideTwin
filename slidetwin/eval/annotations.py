@@ -184,52 +184,110 @@ def feret_diameter(points: NDArray[np.float64]) -> float:
     return best
 
 
-def _draw(rings: list[NDArray[np.float64]], size: tuple[int, int]) -> NDArray[np.bool_]:
-    """Fill polygons given in grid units (cell k spans [k, k+1)) on a (cols, rows) raster."""
-    img = Image.new("1", size, 0)
-    draw = ImageDraw.Draw(img)
+SUPERSAMPLE = 8
+
+
+def _fill(ring: NDArray[np.float64], shape: tuple[int, int]) -> tuple[int, int, NDArray[np.bool_]]:
+    """Cells of a raster of `shape` (rows, cols) whose centre lies inside the polygon `ring`
+    (grid units: cell k spans [k, k+1)). Returns (row0, col0, block) for the polygon's box.
+
+    The polygon is drawn 8x finer and sampled at the cell centres, so Pillow's rounding of the
+    vertices moves an edge by at most 1/8 of a cell, the same way on every side.
+    """
+    rows, cols = shape
+    c0, r0 = (max(0, int(np.floor(v))) for v in ring.min(axis=0))
+    c1, r1 = (int(np.ceil(v)) for v in ring.max(axis=0))
+    c1, r1 = min(cols, max(c1, c0 + 1)), min(rows, max(r1, r0 + 1))
+    if c0 >= cols or r0 >= rows:
+        return r0, c0, np.zeros((0, 0), dtype=bool)
+    s = SUPERSAMPLE
+    img = Image.new("1", ((c1 - c0) * s, (r1 - r0) * s), 0)
+    pts = (ring - (c0, r0)) * s
+    ImageDraw.Draw(img).polygon([(float(x), float(y)) for x, y in pts.tolist()], fill=1)
+    block: NDArray[np.bool_] = np.asarray(img, dtype=bool)[s // 2 :: s, s // 2 :: s]
+    return r0, c0, block
+
+
+def _raster(rings: list[NDArray[np.float64]], shape: tuple[int, int]) -> NDArray[np.bool_]:
+    mask = np.zeros(shape, dtype=bool)
     for ring in rings:
-        # PIL addresses a pixel by its index, so a vertex moves to the cell centre convention.
-        draw.polygon([(float(x), float(y)) for x, y in (ring - 0.5).tolist()], fill=1, outline=1)
-    return np.asarray(img, dtype=bool)
+        r0, c0, block = _fill(ring, shape)
+        mask[r0 : r0 + block.shape[0], c0 : c0 + block.shape[1]] |= block
+    return mask
+
+
+def _shoelace_um2(ring: Ring) -> float:
+    x, y = ring[:, 0], ring[:, 1]
+    return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
+
+
+def _overlap(a: BBox, b: BBox) -> bool:
+    return a.x0 < b.x1 and b.x0 < a.x1 and a.y0 < b.y1 and b.y0 < a.y1
 
 
 def build_lesions(regions: list[Region], grid_um: float = 8.0) -> Lesions:
-    """Rasterise the regions on a grid (tumour minus exclusions) and merge touching tumour polygons
-    (8-connected on this grid) into deposits. Draft definition: needs pathologist review."""
+    """Rasterise the regions on a grid (a cell is tumour when its centre lies in a tumour polygon
+    and in no exclusion) and group 8-connected tumour cells into deposits. Draft definition:
+    needs pathologist review.
+
+    A deposit's size is the largest distance between two vertices of its polygons. Where an
+    exclusion lies on a deposit, the polygons no longer describe its outline, so the size comes
+    from the grid instead: the largest distance between two of its cell centres, plus one cell.
+    A polygon smaller than one cell keeps its own area and size.
+    """
     tumor = [r for r in regions if r.group == "tumor"]
     if not tumor:
         return Lesions(grid_um, (0.0, 0.0), np.zeros((0, 0), bool), ())
     lo = np.min([r.ring.min(axis=0) for r in regions], axis=0) - grid_um
     hi = np.max([r.ring.max(axis=0) for r in regions], axis=0) + grid_um
     cols, rows = (int(v) for v in np.ceil((hi - lo) / grid_um))
-    grid = [(r.ring - lo) / grid_um for r in tumor]
-    tumor_mask = _draw(grid, (cols, rows))
-    exclusions = [(r.ring - lo) / grid_um for r in regions if r.group == "exclusion"]
-    mask = tumor_mask & ~_draw(exclusions, (cols, rows)) if exclusions else tumor_mask
-    labels, _ = ndimage.label(tumor_mask, structure=np.ones((3, 3), bool))
+    shape = (rows, cols)
+
+    def to_grid(ring: Ring) -> NDArray[np.float64]:
+        grid: NDArray[np.float64] = (ring - lo) / grid_um
+        return grid
+
+    exclusions = [r for r in regions if r.group == "exclusion"]
+    mask = _raster([to_grid(r.ring) for r in tumor], shape)
+    if exclusions:
+        mask &= ~_raster([to_grid(r.ring) for r in exclusions], shape)
+    labels, _ = ndimage.label(mask, structure=np.ones((3, 3), bool))
 
     members: dict[int, list[Region]] = {}
-    for region, ring in zip(tumor, grid, strict=True):
-        c0, r0 = (max(0, int(v) - 1) for v in ring.min(axis=0))
-        c1, r1 = (int(v) + 2 for v in ring.max(axis=0))
-        alone = _draw([ring - (c0, r0)], (c1 - c0, r1 - r0))
-        found = labels[r0:r1, c0:c1][alone[: rows - r0, : cols - c0]]
-        found = found[found > 0]
-        if found.size:
-            members.setdefault(int(np.argmax(np.bincount(found))), []).append(region)
-
+    split: set[int] = set()  # components holding part of a polygon that an exclusion cut
     deposits = []
-    for k, rs in members.items():
-        verts = np.concatenate([r.ring for r in rs])
-        area = float((mask & (labels == k)).sum()) * grid_um * grid_um / 1e6
-        (x0, y0), (x1, y1) = verts.min(axis=0), verts.max(axis=0)
-        deposits.append(
-            Deposit(
-                round(area, 6),
-                round(feret_diameter(verts) / 1000, 6),
-                BBox(float(x0), float(y0), float(x1), float(y1)),
+    for region in tumor:
+        r0, c0, block = _fill(to_grid(region.ring), shape)
+        found = labels[r0 : r0 + block.shape[0], c0 : c0 + block.shape[1]][block]
+        found = np.unique(found[found > 0])
+        if found.size:
+            for k in found:
+                members.setdefault(int(k), []).append(region)
+            if found.size > 1:
+                split.update(int(k) for k in found)
+        elif not block.any():  # smaller than a cell: a deposit of its own
+            deposits.append(
+                Deposit(
+                    round(_shoelace_um2(region.ring) / 1e6, 6),
+                    round(feret_diameter(region.ring) / 1000, 6),
+                    region.bbox,
+                )
             )
-        )
+
+    for k, rs in members.items():
+        cells = np.argwhere(labels == k)  # (row, col)
+        centres = (cells[:, ::-1] + 0.5) * grid_um + lo
+        (x0, y0), (x1, y1) = centres.min(axis=0) - grid_um / 2, centres.max(axis=0) + grid_um / 2
+        box = BBox(float(x0), float(y0), float(x1), float(y1))
+        near = BBox(box.x0 - grid_um, box.y0 - grid_um, box.x1 + grid_um, box.y1 + grid_um)
+        if k in split or any(_overlap(near, e.bbox) for e in exclusions):
+            size_um = feret_diameter(centres) + grid_um
+        else:
+            verts = np.concatenate([r.ring for r in rs])
+            size_um = feret_diameter(verts)
+            (x0, y0), (x1, y1) = verts.min(axis=0), verts.max(axis=0)
+            box = BBox(float(x0), float(y0), float(x1), float(y1))
+        area = float(len(cells)) * grid_um * grid_um / 1e6
+        deposits.append(Deposit(round(area, 6), round(size_um / 1000, 6), box))
     deposits.sort(key=lambda d: (-d.largest_dimension_mm, -d.area_mm2))
     return Lesions(grid_um, (float(lo[0]), float(lo[1])), mask, tuple(deposits))

@@ -19,8 +19,14 @@ from slidetwin import fetch_slides
 
 def main(environ: Mapping[str, str] | None = None) -> None:
     env = os.environ if environ is None else environ
-    if env.get("SLIDETWIN_FETCH_SLIDES", "0") == "1" and fetch_slides.main([]) != 0:
-        print("Some slides could not be fetched; opening them will fail.", file=sys.stderr)
+    if env.get("SLIDETWIN_FETCH_SLIDES", "0") == "1":
+        try:
+            ok = fetch_slides.main([]) == 0
+        except Exception as err:  # e.g. an unreadable manifest: still serve the UI and the API
+            print(f"Fetching slides failed ({type(err).__name__}: {err}).", file=sys.stderr)
+            ok = False
+        if not ok:
+            print("Some slides could not be fetched; opening them will fail.", file=sys.stderr)
     uvicorn.run(
         "slidetwin.api.main:app",
         host=env.get("HOST", "0.0.0.0"),

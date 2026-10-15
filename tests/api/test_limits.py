@@ -33,6 +33,7 @@ def limited_app(clock: Clock, **kw: Any) -> tuple[TestClient, RateLimit]:
         return {"ok": True}
 
     kw.setdefault("rate_per_s", 1.0)
+    app.get("/api/sessions/" + "0" * 32 + "/views/v_0001.jpg")(lambda: {"ok": True})
     kw.setdefault("burst", 3)
     app.add_middleware(RateLimit, clock=clock, **kw)
     client = TestClient(app)
@@ -89,3 +90,25 @@ def test_settings_validate_the_limits(tmp_path: Any) -> None:
     env = {"SLIDETWIN_RATE_LIMIT_PER_S": "0", "SLIDETWIN_RATE_LIMIT_BURST": "5"}
     s = Settings.from_env(env)
     assert (s.rate_limit_per_s, s.rate_limit_burst) == (0.0, 5)
+
+
+def test_behind_a_proxy_the_last_forwarded_entry_is_the_client() -> None:
+    clock = Clock()
+    client, limiter = limited_app(clock, burst=1, client_header="X-Forwarded-For")
+    spoof = [{"x-forwarded-for": f"fake-{i}, 10.0.0.1"} for i in range(5)]
+    assert [client.get("/api/x", headers=h).status_code for h in spoof] == [200, 429, 429, 429, 429]
+    assert client.get("/api/x", headers={"x-forwarded-for": "10.0.0.2"}).status_code == 200
+    assert client.get("/api/x").status_code == 200  # no header: the peer address
+    assert set(limiter.buckets) == {"10.0.0.1", "10.0.0.2", "testclient"}
+
+
+def test_images_of_served_views_are_not_limited() -> None:
+    from slidetwin.api.limits import IMAGE_PATH, host_allowed
+
+    sid = "0" * 32
+    assert IMAGE_PATH.fullmatch(f"/api/sessions/{sid}/views/v_0003.jpg")
+    assert IMAGE_PATH.fullmatch(f"/api/sessions/{sid}/thumbnails/t_0001.jpg")
+    assert not IMAGE_PATH.fullmatch(f"/api/sessions/{sid}/pan")
+    assert host_allowed("LocalHost:7860", ("localhost:*",))
+    assert not host_allowed("localhost.evil.example", ("localhost:*",))
+    assert not host_allowed("", ("localhost",))

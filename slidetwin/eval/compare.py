@@ -26,7 +26,7 @@ from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.trajectory import load_trajectory
 from slidetwin.eval.annotations import build_lesions, load_regions
-from slidetwin.eval.metrics import ReadingMetrics, evaluate, load_truth, views_of
+from slidetwin.eval.metrics import ReadingMetrics, evaluate, load_truth, thresholds, views_of
 from slidetwin.eval.visualize import Overview, coverage_heatmap, path_overlay, replay_gif
 
 # Which profiles each baseline can run under: the crop agent needs the crop action.
@@ -83,6 +83,7 @@ async def run_matrix(
         slide_dir=paths.slide_dir,
         log_dir=out_dir / "server_logs",
         cache_dir=paths.cache_dir,
+        allowed_hosts=("*",),  # in process, no browser
     )
     app = create_app(settings, manager=manager)
     written = []
@@ -141,7 +142,9 @@ def evaluate_dir(
             path_overlay(ov, views, regions).save(fig_dir / f"{stem}__path.png")
             protocol = configs.protocol(header["protocol"]["id"])
             tissue = tissue_map(source, protocol.coverage)
-            coverage_heatmap(ov, tissue, views, regions).save(fig_dir / f"{stem}__coverage.png")
+            screen, confirm = thresholds(header)
+            heat = coverage_heatmap(ov, tissue, views, regions, screen=screen, confirm=confirm)
+            heat.save(fig_dir / f"{stem}__coverage.png")
             if any(stem.endswith(tag) for tag in gif_for):
                 small = Overview(source, long_side=640)
                 replay_gif(small, views, fig_dir / f"{stem}__replay.gif", regions)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from slidetwin.agents.client import Env
+from slidetwin.agents.client import Env, EnvError
 from slidetwin.agents.common import AgentResult, finish, report
 from slidetwin.agents.vision import RGB, decode, dense_purple, purple_fraction, tissue_mask
 
@@ -49,20 +49,27 @@ async def run(
     block_px = max(1, round(crop_um / ux))
     claims: list[dict[str, Any]] = []
     best = 0.0
-    for n, (x, y) in enumerate(pick_blocks(decode(thumb.image or b""), block_px, crops), start=1):
-        crop = await s.crop(x * ux, y * uy, crop_um, crop_um)
-        score = purple_fraction(decode(crop.image or b""))
-        best = max(best, score)
-        if score >= flag_fraction:
-            claims.append(
-                {
-                    "id": f"f{n}",
-                    "type": "finding",
-                    "text": f"Dense purple tissue in a crop ({score:.0%} of the tissue pixels).",
-                    "evidence": [crop.observation["view_id"]],
-                }
-            )
+    notes: list[str] = []
+    blocks = pick_blocks(decode(thumb.image or b""), block_px, crops)
+    try:
+        for n, (x, y) in enumerate(blocks, start=1):
+            crop = await s.crop(x * ux, y * uy, crop_um, crop_um)
+            score = purple_fraction(decode(crop.image or b""))
+            best = max(best, score)
+            if score >= flag_fraction:
+                claims.append(
+                    {
+                        "id": f"f{n}",
+                        "type": "finding",
+                        "text": f"Dense purple tissue in a crop ({score:.0%} of the tissue "
+                        "pixels).",
+                        "evidence": [crop.observation["view_id"]],
+                    }
+                )
+    except EnvError as err:  # e.g. the view budget ran out: report on what was seen
+        notes.append(f"crops stopped: {err.code}")
+    notes.append(f"best crop {best:.2f}")
     if claims:
-        return await finish(s, report("present", "micro", claims), [f"best crop {best:.2f}"])
+        return await finish(s, report("present", "micro", claims), notes)
     negative = {"id": "n1", "type": "negative", "text": "No dense purple tissue in the crops."}
-    return await finish(s, report("absent", "none", [negative]), [f"best crop {best:.2f}"])
+    return await finish(s, report("absent", "none", [negative]), notes)

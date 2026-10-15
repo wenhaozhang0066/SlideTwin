@@ -10,8 +10,10 @@ looking at the result. Per action type:
   `pan_base_s` (intercept) and `pan_per_viewport_s` (slope);
 - view_render_s: the median interval of `view` actions when there are enough, else kept as given.
 
-Intervals longer than `max_gap_s` (breaks) and failed actions are left out. 95% intervals come from
-a bootstrap over the actions. A parameter without data keeps its current value.
+Intervals longer than `max_gap_s` (breaks), failed actions and actions the UI made by itself
+(`client.input == "auto"`, such as the thumbnail fetched at the start) are left out. 95% intervals
+come from a bootstrap over the actions. A parameter without data keeps its current value and gets
+no interval.
 """
 
 from __future__ import annotations
@@ -49,6 +51,9 @@ def intervals(
         if e.get("error"):
             continue
         state = e["state_after"]
+        if (e.get("client") or {}).get("input") == "auto":  # not a person's action
+            prev_state = state
+            continue
         if e["action"] in FITTED and 0 <= dt <= max_gap_s:
             moved = 0.0
             if e["action"] == "pan":
@@ -71,31 +76,40 @@ def theil_sen(xs: list[float], ys: list[float], *, max_pairs: int = 20000) -> tu
     return median(y - slope * x for x, y in zip(xs, ys, strict=True)), slope
 
 
-def _estimate(data: list[Interval], current: Mapping[str, float]) -> dict[str, float]:
+def _estimate(
+    data: list[Interval], current: Mapping[str, float]
+) -> tuple[dict[str, float], set[str]]:
+    """(parameters, the names fitted from data); the others keep their current values."""
     by: dict[str, list[Interval]] = {}
     for iv in data:
         by.setdefault(iv.action, []).append(iv)
     out = dict(current)
+    fitted: set[str] = set()
     views = by.get("view", [])
-    render = (
-        median(v.seconds for v in views) if len(views) >= MIN_VIEWS else current["view_render_s"]
-    )
+    render = current["view_render_s"]
+    if len(views) >= MIN_VIEWS:
+        render = median(v.seconds for v in views)
+        fitted.add("view_render_s")
     out["view_render_s"] = render
-    for action, key in [
+    singles = [
         ("get_thumbnail", "thumbnail_s"),
         ("measure", "measure_s"),
         ("annotate", "annotate_s"),
-    ]:
+    ]
+    for action, key in singles:
         if by.get(action):
             out[key] = median(v.seconds for v in by[action])
+            fitted.add(key)
     for action, key in [("set_magnification", "set_magnification_s"), ("move_to", "move_to_s")]:
         if by.get(action):
             out[key] = max(0.0, median(v.seconds for v in by[action]) - render)
+            fitted.add(key)
     pans = by.get("pan", [])
     if pans:
         base, slope = theil_sen([p.viewports for p in pans], [p.seconds - render for p in pans])
         out["pan_base_s"], out["pan_per_viewport_s"] = max(0.0, base), max(0.0, slope)
-    return out
+        fitted.update({"pan_base_s", "pan_per_viewport_s"})
+    return out, fitted
 
 
 @dataclass
@@ -155,15 +169,19 @@ def fit(
     counts: dict[str, int] = {}
     for iv in data:
         counts[iv.action] = counts.get(iv.action, 0) + 1
-    result = Fit(_estimate(data, base), base, counts, n_sessions)
+    params, fitted = _estimate(data, base)
+    result = Fit(params, base, counts, n_sessions)
     if data and n_boot > 0:
         rng = random.Random(seed)
-        draws: dict[str, list[float]] = {k: [] for k in result.params}
+        draws: dict[str, list[float]] = {k: [] for k in fitted}
         for _ in range(n_boot):
             sample = [data[rng.randrange(len(data))] for _ in data]
-            for k, v in _estimate(sample, base).items():
-                draws[k].append(v)
+            values_k, fitted_k = _estimate(sample, base)
+            for k in fitted & fitted_k:  # a resample without the action says nothing about it
+                draws[k].append(values_k[k])
         for k, values in draws.items():
+            if not values:
+                continue
             values.sort()
             result.ci95[k] = (
                 values[int(0.025 * (len(values) - 1))],

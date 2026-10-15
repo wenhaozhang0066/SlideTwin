@@ -1,6 +1,7 @@
 # Evaluation of the baseline agents on the demo slides
 
-Generated on 2026-10-15 by `python -m slidetwin.eval` (code at the commit that adds this file).
+Generated on 2026-10-15 by `python -m slidetwin.eval`, re-run after the M3-M7 review fixes
+(the numbers did not change).
 Numbers and method only: the pictures (reading paths, coverage heatmaps, replay GIFs) stay in the
 git-ignored `data/eval/` because the CAMELYON licence terms are unclear (DATA_LICENSES.md).
 
@@ -33,7 +34,7 @@ git-ignored `data/eval/` because the CAMELYON licence terms are unclear (DATA_LI
 | conclusion correct | `present` on a tumour slide, `absent` on a negative one (`indeterminate` is not correct) |
 | lesion seen at 20x | a view at 20x or more showed annotated tumour |
 | findings on lesion | findings whose evidence views show annotated tumour |
-| size error | reported size (largest cited measurement) minus the largest deposit, in mm (absolute) |
+| size error | reported size (`largest_deposit_mm`, else the largest cited measurement) minus the largest deposit, in mm (absolute) |
 
 ## Results
 

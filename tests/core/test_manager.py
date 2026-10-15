@@ -103,3 +103,24 @@ def test_malformed_ids_are_not_found(registry: SlideRegistry, configs: ConfigSto
     for bad in ("", "abc", "G" * 32, "0" * 33):
         with pytest.raises(SessionNotFound):
             m.get(bad)
+
+
+def test_a_long_idle_session_yields_its_slot_when_all_are_taken(
+    registry: SlideRegistry, configs: ConfigStore
+) -> None:
+    now = [0.0]
+    m = make(registry, configs, max_sessions=2, evict_idle_s=600.0, clock=lambda: now[0])
+    a = m.create(slide_id="syn", actor="agent:a", viewport_px=(256, 192))
+    now[0] = 100.0
+    b = m.create(slide_id="syn", actor="agent:b", viewport_px=(256, 192))
+    now[0] = 650.0  # a has been idle for 650 s, b for 550 s
+    c = m.create(slide_id="syn", actor="agent:c", viewport_px=(256, 192))  # takes a's slot
+    with pytest.raises(SessionNotFound):
+        m.get(a.session_id)
+    assert m.get(b.session_id) is b
+    with pytest.raises(TooManySessions, match="All 2 session slots") as full:
+        m.create(slide_id="syn", actor="agent:d", viewport_px=(256, 192))  # b, c are not idle
+    assert "try again in a few minutes" in (full.value.hint or "")
+    assert m.get(c.session_id) is c
+    with pytest.raises(ValueError, match="evict_idle_s"):
+        make(registry, configs, evict_idle_s=0)

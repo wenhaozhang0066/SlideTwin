@@ -11,10 +11,9 @@ from pathlib import Path
 
 from slidetwin.core.errors import ConfigError
 
-# The MCP endpoint answers only requests addressed to these hosts and origins (DNS rebinding
-# protection, on by default for a local server). "*" turns the check off, e.g. on a public Space.
+# The server answers only requests addressed to these hosts (DNS rebinding protection, on by
+# default for a local server that may hold internal slides). "*" turns the check off.
 LOCAL_HOSTS = ("127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*")
-LOCAL_ORIGINS = tuple(f"http://{h}" for h in LOCAL_HOSTS)
 
 
 @dataclass(frozen=True)
@@ -27,11 +26,13 @@ class Settings:
     max_sessions: int = 16
     idle_ttl_s: float = 7200.0
     max_age_s: float = 28800.0
+    evict_idle_s: float = 900.0
     max_body_bytes: int = 1_000_000
-    mcp_allowed_hosts: tuple[str, ...] = LOCAL_HOSTS
-    mcp_allowed_origins: tuple[str, ...] = LOCAL_ORIGINS
+    allowed_hosts: tuple[str, ...] = LOCAL_HOSTS
+    allowed_origins: tuple[str, ...] = ()  # beyond those on an allowed host; "*" = any
     rate_limit_per_s: float = 0.0  # sustained requests per second per client; 0 turns it off
     rate_limit_burst: int = 60
+    rate_limit_client_header: str = ""  # e.g. x-forwarded-for: its last entry names the client
 
     def __post_init__(self) -> None:
         if not isinstance(self.max_sessions, int) or self.max_sessions < 1:
@@ -39,6 +40,7 @@ class Settings:
         for var, value in (
             ("SLIDETWIN_SESSION_TTL_S", self.idle_ttl_s),
             ("SLIDETWIN_SESSION_MAX_AGE_S", self.max_age_s),
+            ("SLIDETWIN_SESSION_EVICT_IDLE_S", self.evict_idle_s),
         ):
             if not (math.isfinite(value) and value > 0):
                 raise ConfigError(f"{var} must be a positive number of seconds, got {value}.")
@@ -72,11 +74,13 @@ class Settings:
         SLIDETWIN_MAX_SESSIONS       16
         SLIDETWIN_SESSION_TTL_S      7200             idle time before a session ends
         SLIDETWIN_SESSION_MAX_AGE_S  28800            absolute session lifetime
+        SLIDETWIN_SESSION_EVICT_IDLE_S  900           when full, a session idle this long yields
         SLIDETWIN_MAX_BODY_BYTES     1000000          request body limit
-        SLIDETWIN_MCP_ALLOWED_HOSTS  localhost        Host values /mcp accepts (comma list, "*" any)
-        SLIDETWIN_MCP_ALLOWED_ORIGINS  localhost      Origin values /mcp accepts (same format)
+        SLIDETWIN_ALLOWED_HOSTS      localhost        Host values served (comma list; "*" = any)
+        SLIDETWIN_ALLOWED_ORIGINS    (none)           browser origins beyond the allowed hosts
         SLIDETWIN_RATE_LIMIT_PER_S   0 (off)          requests per second per client (image: 20)
         SLIDETWIN_RATE_LIMIT_BURST   60               requests a client may send at once
+        SLIDETWIN_RATE_LIMIT_CLIENT_HEADER  (peer)    header whose last entry names the client
         """
         env = os.environ if environ is None else environ
         config_dir = Path(env.get("SLIDETWIN_CONFIG_DIR", "configs"))
@@ -98,11 +102,13 @@ class Settings:
             max_sessions=_number(env, "SLIDETWIN_MAX_SESSIONS", "16", int),
             idle_ttl_s=_number(env, "SLIDETWIN_SESSION_TTL_S", "7200", float),
             max_age_s=_number(env, "SLIDETWIN_SESSION_MAX_AGE_S", "28800", float),
+            evict_idle_s=_number(env, "SLIDETWIN_SESSION_EVICT_IDLE_S", "900", float),
             max_body_bytes=_number(env, "SLIDETWIN_MAX_BODY_BYTES", "1000000", int),
-            mcp_allowed_hosts=_list(env, "SLIDETWIN_MCP_ALLOWED_HOSTS", LOCAL_HOSTS),
-            mcp_allowed_origins=_list(env, "SLIDETWIN_MCP_ALLOWED_ORIGINS", LOCAL_ORIGINS),
+            allowed_hosts=_list(env, "SLIDETWIN_ALLOWED_HOSTS", LOCAL_HOSTS),
+            allowed_origins=_list(env, "SLIDETWIN_ALLOWED_ORIGINS", ()),
             rate_limit_per_s=_number(env, "SLIDETWIN_RATE_LIMIT_PER_S", "0", float),
             rate_limit_burst=_number(env, "SLIDETWIN_RATE_LIMIT_BURST", "60", int),
+            rate_limit_client_header=env.get("SLIDETWIN_RATE_LIMIT_CLIENT_HEADER", "").strip(),
         )
 
     def check_log_dir(self) -> None:

@@ -24,6 +24,9 @@ def test_index_and_static_files_are_served(client: TestClient) -> None:
         resp = client.get(f"/static/{name}")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith(mime)
+        assert resp.headers["cache-control"] == "no-cache"  # a redeploy reaches every reader
+        again = client.get(f"/static/{name}", headers={"if-none-match": resp.headers["etag"]})
+        assert again.status_code == 304
 
 
 def test_static_mount_serves_only_the_web_directory(client: TestClient) -> None:

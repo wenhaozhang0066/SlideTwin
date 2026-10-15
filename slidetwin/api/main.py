@@ -13,18 +13,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from slidetwin import __version__
 from slidetwin.api.errors import BodySizeLimit, install_error_handlers
-from slidetwin.api.limits import RateLimit
+from slidetwin.api.limits import HostCheck, RateLimit
 from slidetwin.api.routes import router
 from slidetwin.api.settings import Settings
 from slidetwin.core.config import ConfigStore
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
-from slidetwin.mcp_server import build_mcp, transport_security
+from slidetwin.mcp_server import SDK_TRANSPORT_SECURITY, build_mcp
 from slidetwin.version import git_sha
 
 DESCRIPTION = """Agent-operable digital pathology viewer simulator.
@@ -39,6 +39,16 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 mimetypes.add_type("text/javascript", ".js")  # module scripts need a JavaScript MIME type
 
 
+class _RevalidatedStatic(StaticFiles):
+    """Static files that browsers revalidate on every load, so a redeploy never leaves a reader
+    on old scripts (ETag and Last-Modified make the check cheap)."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["cache-control"] = "no-cache"
+        return response
+
+
 def build_manager(settings: Settings) -> SessionManager:
     settings.check_log_dir()
     return SessionManager(
@@ -50,6 +60,7 @@ def build_manager(settings: Settings) -> SessionManager:
         max_sessions=settings.max_sessions,
         idle_ttl_s=settings.idle_ttl_s,
         max_age_s=settings.max_age_s,
+        evict_idle_s=settings.evict_idle_s,
     )
 
 
@@ -65,9 +76,7 @@ def create_app(
         streamable_http_path="/mcp",
         stateless_http=True,
         json_response=True,
-        transport_security=transport_security(
-            settings.mcp_allowed_hosts, settings.mcp_allowed_origins
-        ),
+        transport_security=SDK_TRANSPORT_SECURITY,
         max_request_body_size=settings.max_body_bytes,
     )
 
@@ -84,8 +93,14 @@ def create_app(
     app.state.manager = mgr
     install_error_handlers(app)
     app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
-    app.add_middleware(  # outermost: refuses before any body is read
-        RateLimit, rate_per_s=settings.rate_limit_per_s, burst=settings.rate_limit_burst
+    app.add_middleware(
+        RateLimit,
+        rate_per_s=settings.rate_limit_per_s,
+        burst=settings.rate_limit_burst,
+        client_header=settings.rate_limit_client_header,
+    )
+    app.add_middleware(  # outermost: a misdirected request is refused before anything else
+        HostCheck, hosts=settings.allowed_hosts, origins=settings.allowed_origins
     )
 
     @app.get("/api/health", tags=["meta"])
@@ -101,7 +116,7 @@ def create_app(
     async def index() -> FileResponse:
         return FileResponse(WEB_DIR / "index.html", headers={"cache-control": "no-cache"})
 
-    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    app.mount("/static", _RevalidatedStatic(directory=WEB_DIR), name="static")
     return app
 
 

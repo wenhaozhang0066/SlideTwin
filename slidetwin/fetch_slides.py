@@ -31,7 +31,16 @@ def _say(text: str) -> None:
 
 
 def fetch_one(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
-    """True when the slide is in place with the pinned hash (or no pin) afterwards."""
+    """True when the slide is in place with the pinned hash (or no pin) afterwards. Any failure,
+    a read-only folder included, is reported and leaves no partial file; it never raises."""
+    try:
+        return _fetch(entry, slide_dir, client)
+    except (httpx.HTTPError, OSError) as err:
+        _say(f"{entry.id}: failed ({type(err).__name__}: {err})")
+        return False
+
+
+def _fetch(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
     target = slide_dir / entry.path
     if target.is_file() and (entry.sha256 is None or file_sha256(target) == entry.sha256):
         _say(f"{entry.id}: present")
@@ -59,15 +68,12 @@ def fetch_one(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
                         share = f"{done / total:6.1%} of {total / 1e9:.2f} GB"
                         _say(f"{entry.id}: {share}, {rate:.0f} MB/s")
                         next_note += 0.1
-    except (httpx.HTTPError, OSError) as err:
-        partial.unlink(missing_ok=True)
-        _say(f"{entry.id}: download failed ({type(err).__name__})")
-        return False
-    if entry.sha256 is not None and digest.hexdigest() != entry.sha256:
-        partial.unlink(missing_ok=True)
-        _say(f"{entry.id}: sha256 does not match the manifest; file discarded")
-        return False
-    os.replace(partial, target)
+        if entry.sha256 is not None and digest.hexdigest() != entry.sha256:
+            _say(f"{entry.id}: sha256 does not match the manifest; file discarded")
+            return False
+        os.replace(partial, target)
+    finally:
+        partial.unlink(missing_ok=True)  # after a failure; after os.replace it is already gone
     _say(f"{entry.id}: done in {time.monotonic() - started:.0f} s")
     return True
 

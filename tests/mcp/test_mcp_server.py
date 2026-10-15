@@ -17,7 +17,7 @@ from slidetwin.api.settings import Settings
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.replay import replay
 from slidetwin.core.report import export_schema
-from slidetwin.mcp_server import build_mcp, transport_security
+from slidetwin.mcp_server import build_mcp
 from tests.conftest import CONFIG_DIR
 from tests.helpers.live import serve
 from tests.mcp.conftest import SECRET
@@ -190,11 +190,11 @@ async def test_failures_are_tool_errors_with_the_rest_envelope(manager: SessionM
         assert err["code"] == "SESSION_NOT_FOUND"
         bad = {"session_id": sid, "report": {**REPORT, "task": "other"}}
         assert _err(await c.call_tool("submit_report", bad))["code"] == "REPORT_INVALID"
-        # Argument types are checked by the SDK against the tool schema, before the session.
+        # Argument types are checked against the tool schema, before the session (not logged).
         for args in [{"session_id": sid, "mag": "10"}, {"session_id": sid, "mag": True}]:
-            r = await c.call_tool("set_magnification", args)
-            assert r.is_error
-            assert r.structured_content is None
+            err = _err(await c.call_tool("set_magnification", args))
+            assert err["code"] == "INVALID_PARAMETER"
+            assert "mag" in err["message"]
         log = (await c.call_tool("export_trajectory", {"session_id": sid})).content[0].text
     assert SECRET not in log
     assert [json.loads(line)["action"] for line in log.splitlines()[1:]] == [
@@ -226,16 +226,32 @@ async def test_rest_and_mcp_sessions_log_the_same_events(
         slide_dir=tissue_manifest.parent,
         log_dir=tmp_path / "logs",
         cache_dir=None,
+        allowed_hosts=("testserver",),
     )
+    rest_out: list[dict[str, Any]] = []
+    mcp_out: list[dict[str, Any]] = []
     with TestClient(create_app(settings, manager=manager)) as rest:
-        rid = rest.post("/api/sessions", json=opening).json()["session_id"]
+        first = rest.post("/api/sessions?include_image=false", json=opening).json()
+        rid = first["session_id"]
         for route, _, body in steps:
-            rest.post(f"/api/sessions/{rid}/{route}", json=body)
+            r = rest.post(f"/api/sessions/{rid}/{route}?include_image=false", json=body).json()
+            rest_out.append(r.get("error") or r)
         async with Client(build_mcp(manager)) as c:
-            mid = _data(await c.call_tool("create_session", opening))["session_id"]
+            opened = _data(await c.call_tool("create_session", opening))
+            mid = opened["session_id"]
             for _, tool, body in steps:
-                await c.call_tool(tool, {"session_id": mid, **body})
+                r = await c.call_tool(tool, {"session_id": mid, **body})
+                mcp_out.append(r.structured_content.get("error") or r.structured_content)
         logs = [[json.loads(x) for x in manager.trajectory(sid).splitlines()] for sid in (rid, mid)]
+
+    def same(a: Any, b: Any) -> Any:
+        """The two sessions differ only in their ids (and the image URLs that contain them)."""
+        text = json.dumps(b).replace(mid, rid)
+        return json.loads(text) == a
+
+    assert same(first, opened)  # every field, null values included (claim_id, base64, ...)
+    for a, b in zip(rest_out, mcp_out, strict=True):
+        assert same(a, b), (a, b)
 
     rest_log, mcp_log = logs
     assert len(rest_log) == len(mcp_log) == len(steps) + 3  # header, create, steps, export
@@ -246,32 +262,112 @@ async def test_rest_and_mcp_sessions_log_the_same_events(
     assert rest_log[0]["actor"] == mcp_log[0]["actor"]
 
 
-def test_mcp_answers_only_allowed_hosts(
+def test_every_route_answers_only_allowed_hosts_and_origins(
     manager: SessionManager, tissue_manifest: Path, tmp_path: Path
 ) -> None:
-    def settings(hosts: tuple[str, ...]) -> Settings:
+    def settings(hosts: tuple[str, ...], origins: tuple[str, ...] = ()) -> Settings:
         return Settings(
             config_dir=CONFIG_DIR,
             manifest=tissue_manifest,
             slide_dir=tissue_manifest.parent,
             log_dir=tmp_path / "logs",
             cache_dir=None,
-            mcp_allowed_hosts=hosts,
+            allowed_hosts=hosts,
+            allowed_origins=origins,
         )
 
     ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
     headers = {"accept": "application/json, text/event-stream"}
+    local = {**headers, "host": "localhost:7860"}
+    opening = {"slide_id": "syn_tissue", "actor": "agent:h"}
     with TestClient(create_app(settings(("localhost:*",)), manager=manager)) as client:
-        assert client.post("/mcp", json=ping, headers=headers).status_code == 421  # "testserver"
-        local = {**headers, "host": "localhost:7860"}
+        # DNS rebinding: a page on another name reaches neither MCP nor REST nor the UI.
+        for resp in [
+            client.post("/mcp", json=ping, headers=headers),
+            client.post("/api/sessions", json=opening),
+            client.get("/"),
+        ]:
+            assert resp.status_code == 421
+            assert resp.json()["error"]["code"] == "HOST_NOT_ALLOWED"
         assert client.post("/mcp", json=ping, headers=local).status_code == 200
+        assert client.get("/api/slides", headers=local).status_code == 200
+        same_site = {**local, "origin": "http://localhost:7860"}
+        assert client.post("/api/sessions", json=opening, headers=same_site).status_code == 201
         evil = {**local, "origin": "https://evil.example"}
-        assert client.post("/mcp", json=ping, headers=evil).status_code == 403
+        for resp in [
+            client.post("/mcp", json=ping, headers=evil),
+            client.post("/api/sessions", json=opening, headers=evil),
+        ]:
+            assert resp.status_code == 403
+            assert resp.json()["error"]["code"] == "ORIGIN_NOT_ALLOWED"
         # The REST error envelope still answers unknown paths; /mcp/ is not a second endpoint.
-        assert client.get("/mcp/extra").json()["error"]["code"] == "NOT_FOUND"
-    with TestClient(create_app(settings(("*",)), manager=manager)) as client:
-        assert client.post("/mcp", json=ping, headers=headers).status_code == 200
-    assert transport_security(("*",), ()).enable_dns_rebinding_protection is False
+        assert client.get("/mcp/extra", headers=local).json()["error"]["code"] == "NOT_FOUND"
+    space = settings(("myspace.hf.space",), ("*",))
+    with TestClient(create_app(space, manager=manager)) as client:
+        hf = {**headers, "host": "myspace.hf.space", "origin": "https://anything.example"}
+        assert client.post("/mcp", json=ping, headers=hf).status_code == 200  # any origin
+    with TestClient(
+        create_app(settings(("*",), ("https://app.example",)), manager=manager)
+    ) as client:
+        assert client.post("/mcp", json=ping, headers=headers).status_code == 200  # any host
+        bad = {**headers, "origin": "https://evil.example"}
+        assert client.post("/mcp", json=ping, headers=bad).status_code == 403  # origins still apply
+        good = {**headers, "origin": "https://app.example/"}
+        assert client.post("/mcp", json=ping, headers=good).status_code == 200
+
+
+async def test_arguments_are_as_strict_as_rest(manager: SessionManager) -> None:
+    async with Client(build_mcp(manager)) as c:
+        bad_open = {"slide_id": "syn_tissue", "actor": "agent:s", "profle": "unconstrained"}
+        err = _err(await c.call_tool("create_session", bad_open))
+        assert err["code"] == "INVALID_PARAMETER"
+        assert "profle" in err["message"]
+        sid = _data(
+            await c.call_tool("create_session", {"slide_id": "syn_tissue", "actor": "agent:s"})
+        )["session_id"]
+        for tool, args in [
+            ("measure", {"p1_px": "[1, 2]", "p2_px": [5, 5]}),  # JSON held in a string
+            (
+                "annotate",
+                {"geometry": {"type": "point", "coordinates": [1, 1]}, "label": "x", "nte": "y"},
+            ),
+            ("submit_report", {"report": json.dumps(REPORT)}),
+            ("set_magnification", {"mag": True}),
+            ("pan", {"dx": 0.5}),
+        ]:
+            err = _err(await c.call_tool(tool, {"session_id": sid, **args}))
+            assert err["code"] == "INVALID_PARAMETER", (tool, err)
+        assert (
+            _err(await c.call_tool("get_state", {"session_id": "nope"}))["code"]
+            == "INVALID_PARAMETER"
+        )
+        log = (await c.call_tool("export_trajectory", {"session_id": sid})).content[0].text
+    # Refused before the session, like a REST 422: nothing but opening and export is logged.
+    assert [json.loads(line)["action"] for line in log.splitlines()[1:]] == [
+        "create_session",
+        "export_trajectory",
+    ]
+
+
+async def test_unexpected_failures_come_back_as_internal_errors(
+    manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(**_: Any) -> Any:
+        raise PermissionError("logs are read-only")
+
+    monkeypatch.setattr(manager, "create", broken)
+    monkeypatch.setattr(manager, "trajectory", lambda sid: (_ for _ in ()).throw(OSError("disk")))
+    async with Client(build_mcp(manager)) as c:
+        err = _err(
+            await c.call_tool("create_session", {"slide_id": "syn_tissue", "actor": "agent:x"})
+        )
+        assert err == {
+            "code": "INTERNAL",
+            "message": "Internal error; the request was not completed.",
+        }
+        err = _err(await c.call_tool("export_trajectory", {"session_id": "0" * 32}))
+        assert err["code"] == "INTERNAL"
+        assert "disk" not in json.dumps(err)
 
 
 async def test_an_mcp_client_reads_a_whole_session_over_http(

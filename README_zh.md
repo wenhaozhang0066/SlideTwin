@@ -48,7 +48,7 @@ uvicorn slidetwin.api.main:app --reload --port 7860
 claude mcp add --transport http slidetwin http://localhost:7860/mcp
 ```
 
-其他客户端的接入命令以各自的官方文档为准。部署到公网域名时，把 `SLIDETWIN_MCP_ALLOWED_HOSTS` 设为该域名（默认只接受 localhost）。
+其他客户端的接入命令以各自的官方文档为准。部署到公网域名时，把 `SLIDETWIN_ALLOWED_HOSTS` 设为该域名（默认只接受 localhost）。
 
 基线 agent 在本地运行，通过 REST 或 MCP 连接服务器：
 

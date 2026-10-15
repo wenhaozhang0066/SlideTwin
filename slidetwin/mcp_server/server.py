@@ -3,27 +3,39 @@
 Each tool returns the JSON of the matching REST response, as text and as structured content. Tools
 that serve pixels add the JPEG as image content: the same image, logged once, that the REST route
 would return. A failed action returns an `isError` result carrying the REST error envelope.
+
+Arguments are checked as strictly as REST request bodies: against the tool's input schema with no
+unknown fields and no JSON-in-a-string, before the session sees them (and, like a REST 422, without
+being logged).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import Callable
 from typing import Annotated, Any
 
+from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
+from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
-from pydantic import Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt
 
 from slidetwin import __version__
 from slidetwin.api.payloads import respond
-from slidetwin.api.schemas import Num, PointPx
-from slidetwin.core.errors import SlideTwinError
+from slidetwin.api.schemas import ActionResponse, CreateSessionResponse, Num, PointPx
+from slidetwin.core.errors import InternalError, InvalidParameter, SlideTwinError
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.report import export_schema
 from slidetwin.core.session import ActionResult, Session
+
+log = logging.getLogger(__name__)
+
+# The app's own HostCheck guards every route, /mcp included, so the SDK's check stays off.
+SDK_TRANSPORT_SECURITY = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 # Logged as the client metadata of every action that comes through MCP.
 VIA_MCP = {"via": "mcp"}
@@ -48,19 +60,6 @@ SessionId = Annotated[
 ]
 
 
-def transport_security(
-    hosts: tuple[str, ...], origins: tuple[str, ...]
-) -> TransportSecuritySettings:
-    """Host and Origin checks for /mcp (DNS rebinding protection); "*" in `hosts` turns them off."""
-    if "*" in hosts:
-        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    return TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=list(hosts),
-        allowed_origins=list(origins),
-    )
-
-
 def _text(data: Any) -> TextContent:
     return TextContent(type="text", text=json.dumps(data, ensure_ascii=False))
 
@@ -81,11 +80,65 @@ def _error(err: SlideTwinError) -> CallToolResult:
     return CallToolResult(content=[_text(body)], structured_content=body, is_error=True)
 
 
+def _unexpected(tool: str, err: Exception) -> CallToolResult:
+    """An unexpected failure, reported like the REST 500 envelope; the trace stays in the log."""
+    log.error("MCP tool %s failed", tool, exc_info=err)
+    return _error(InternalError("Internal error; the request was not completed."))
+
+
+def _as(model: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:
+    """Serialise through the REST response model, so both transports return the same JSON."""
+    out: dict[str, Any] = model.model_validate(data).model_dump(mode="json")
+    return out
+
+
+class StrictArguments:
+    """MCP middleware: check `tools/call` arguments against the tool's input schema, with no
+    unknown fields, before the SDK's lenient parsing (which drops unknown fields and decodes JSON
+    held in strings)."""
+
+    def __init__(self, server: MCPServer) -> None:
+        self.server = server
+        self.validators: dict[str, Draft202012Validator] = {}
+
+    async def _validator(self, name: str) -> Draft202012Validator | None:
+        if not self.validators:
+            for tool in await self.server.list_tools():
+                schema = {**tool.input_schema, "additionalProperties": False}
+                self.validators[tool.name] = Draft202012Validator(schema)
+        return self.validators.get(name)
+
+    async def __call__(
+        self, ctx: ServerRequestContext[Any, Any], call_next: CallNext
+    ) -> HandlerResult:
+        params = ctx.params
+        if ctx.method != "tools/call" or not isinstance(params, dict):
+            return await call_next(ctx)
+        name = params.get("name")
+        validator = await self._validator(name) if isinstance(name, str) else None
+        if validator is None:
+            return await call_next(ctx)
+        errors = sorted(
+            validator.iter_errors(params.get("arguments") or {}),
+            key=lambda e: [str(p) for p in e.absolute_path],
+        )
+        if not errors:
+            return await call_next(ctx)
+        where = ".".join(str(p) for p in errors[0].absolute_path) or "arguments"
+        return _error(
+            InvalidParameter(
+                f"{name}: {where}: {errors[0].message}.",
+                hint="The tool's input schema is listed by tools/list.",
+            )
+        )
+
+
 def build_mcp(manager: SessionManager) -> MCPServer:
     """The MCP server for `manager`. Mount its streamable HTTP route next to the REST API."""
     mcp = MCPServer(
         "SlideTwin", instructions=INSTRUCTIONS, version=__version__, log_level="WARNING"
     )
+    mcp.middleware.append(StrictArguments(mcp))
 
     def act(
         session_id: str, call: Callable[[Session], ActionResult], *, touch: bool = True
@@ -95,7 +148,7 @@ def build_mcp(manager: SessionManager) -> MCPServer:
             result = call(session)
         except SlideTwinError as err:
             return _error(err)
-        return _ok(respond(session, result, False), result.image)
+        return _ok(_as(ActionResponse, respond(session, result, False)), result.image)
 
     # --- catalogue -------------------------------------------------------------------------------
 
@@ -148,9 +201,11 @@ def build_mcp(manager: SessionManager) -> MCPServer:
             )
         except SlideTwinError as err:
             return _error(err)
+        except Exception as err:  # e.g. the log folder is not writable
+            return _unexpected("create_session", err)
         out = respond(session, session.initial, False)
         out.update(session.opening())
-        return _ok(out, session.initial.image)
+        return _ok(_as(CreateSessionResponse, out), session.initial.image)
 
     @mcp.tool()
     def get_state(session_id: SessionId) -> CallToolResult:
@@ -253,6 +308,8 @@ def build_mcp(manager: SessionManager) -> MCPServer:
             text = manager.trajectory(session_id)
         except SlideTwinError as err:
             return _error(err)
+        except Exception as err:  # e.g. the log file cannot be read
+            return _unexpected("export_trajectory", err)
         return CallToolResult(content=[TextContent(type="text", text=text)])
 
     return mcp

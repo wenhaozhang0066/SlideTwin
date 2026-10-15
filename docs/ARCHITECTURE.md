@@ -260,6 +260,10 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
     `minimap`, `minimap-key` or `button`.
 - **Content Security Policy** (meta tag): same origin only, no inline or evaluated script, and no
   third-party requests from a reader's browser.
+- **Views in step with the session.** A view image that cannot be loaded (after three tries) leaves
+  the page without a view until R reloads it. Measuring and annotating check that the view on
+  screen is the session's current view, and a pending annotation is dropped when the view changes.
+  Under a profile without automatic views, the page asks for the view after each move.
 
 ## MCP adapter (M4)
 
@@ -268,15 +272,17 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
 - **Tools.** One per action: `create_session`, `get_state`, `get_thumbnail`, `set_magnification`,
   `pan`, `move_to`, `view`, `measure`, `annotate`, `crop`, `submit_report`, `export_trajectory`,
   plus the catalogue (`list_slides`, `list_profiles`, `list_protocols`, `get_report_schema`).
-- **Results.** The JSON of the matching REST response (`api/payloads.py`), as text and as
-  structured content. Tools that serve pixels add the JPEG as image content: the same logged image.
+- **Results.** The JSON of the matching REST response (`api/payloads.py`, serialised through the
+  REST response models), as text and as structured content. Tools that serve pixels add the JPEG
+  as image content: the same logged image.
 - **Errors.** A refused action returns `isError` with the REST error envelope (code, message, hint,
-  seq). Arguments of the wrong type are rejected by the SDK's schema check before the session sees
-  them; like a REST 422, such calls are not logged.
+  seq). Arguments are validated first against the tool's input schema with no unknown fields (the
+  `StrictArguments` middleware); a failure is `INVALID_PARAMETER` and, like a REST 422, is not
+  logged. Unexpected failures are `INTERNAL`.
 - **Transport.** Streamable HTTP, stateless, JSON responses, at exactly `/mcp` (a route next to
   `/api`, not a mount). The app's lifespan runs the SDK's session manager.
-- **Host check.** `/mcp` answers only the hosts in `SLIDETWIN_MCP_ALLOWED_HOSTS` (default: the
-  localhost forms) and origins in `SLIDETWIN_MCP_ALLOWED_ORIGINS`; `*` turns the check off.
+- **Host check.** The app-wide `HostCheck` (`api/limits.py`) guards `/mcp` with every other route;
+  the SDK's own check is off.
 - Actions through MCP are logged with `client = {"via": "mcp"}`. Otherwise the log is identical to
   the same actions through REST (a test compares them).
 
@@ -289,9 +295,12 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
   with the envelope's fields.
 - **Baselines.** `serpentine_agent`, `random_agent` and `unconstrained_crop_agent` use only served
   images and the published tissue pieces (`vision.py` holds their pixel heuristics).
-- **`llm_agent_example`.** A vision LLM drives six tools (thumbnail, magnification, pan, move_to,
-  measure, report) through `execute()`. Backends: the Anthropic SDK, or any OpenAI-compatible
-  endpoint.
+- **`llm_agent_example`.** A vision LLM drives the tools through `execute()`: thumbnail (when the
+  profile allows it), magnification, pan, move_to, crop (when allowed), measure and report.
+  Backends: the Anthropic SDK, or any OpenAI-compatible endpoint.
+- **Refusals.** Agents stop moving when an action is refused (for example an exhausted budget) and
+  still submit a report; the serpentine agent then makes negative claims only for pieces it fully
+  scanned. Its magnifications and measuring threshold come from the session's protocol.
 - **CLI.** `python -m slidetwin.agents {serpentine,random,crop,llm} --env URL --slide ID`.
 
 ## Evaluation (M6)
@@ -311,8 +320,14 @@ Nothing that serves a session imports this package (a test checks it).
 - `python -m slidetwin.serve` is the image's entry point. It fetches the manifest's slides when
   `SLIDETWIN_FETCH_SLIDES=1` (`slidetwin/fetch_slides.py`, sha256-checked), then runs uvicorn with
   one worker and trusted proxy headers.
-- `api/limits.py`: optional per-client rate limit on `/api` and `/mcp`
-  (`SLIDETWIN_RATE_LIMIT_PER_S`, `SLIDETWIN_RATE_LIMIT_BURST`; on in the image).
+- `api/limits.py`:
+  - `HostCheck`: every route answers only allowed hosts (`SLIDETWIN_ALLOWED_HOSTS`, default the
+    localhost forms) and, when a browser sends an Origin, pages on those hosts or listed origins
+    (`SLIDETWIN_ALLOWED_ORIGINS`). `*` turns either check off.
+  - `RateLimit`: optional per-client limit on `/api` and `/mcp`, except images of views already
+    served (`SLIDETWIN_RATE_LIMIT_PER_S`, `_BURST`, `_CLIENT_HEADER`; on in the image).
+- Session slots: when all are taken, a session idle for `SLIDETWIN_SESSION_EVICT_IDLE_S` (15 min)
+  gives its slot to the new one.
 - `POST /api/sessions/{id}/feedback`: optional pilot feedback, stored next to the session log.
 
 ## Ground truth isolation

@@ -31,6 +31,7 @@ async function call(method, path, body) {
 const session = (sid, tail) => `/api/sessions/${encodeURIComponent(sid)}/${tail}`;
 
 export const api = {
+  health: () => call("GET", "/api/health"),
   slides: () => call("GET", "/api/slides"),
   profiles: () => call("GET", "/api/profiles"),
   protocols: () => call("GET", "/api/protocols"),

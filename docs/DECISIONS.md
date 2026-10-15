@@ -475,8 +475,9 @@ Refuted, with the reason they were left unchanged:
   content, plus the served JPEG as image content.
   - A refused action is an `isError` result carrying the REST error envelope, so agents handle both
     transports the same way.
-  - Argument type errors come from the SDK's schema check, as plain text, and are not logged, like
-    a REST 422.
+  - Arguments are checked against each tool's input schema with no unknown fields, before the
+    SDK's lenient parsing; a failure is an `INVALID_PARAMETER` envelope and is not logged, like a
+    REST 422 (changed in the review below).
 - **`/mcp` is a route, not a mount.**
   - A mount at `/mcp` answers `/mcp` with a redirect to `/mcp/`. Behind a TLS proxy the redirect can
     point to `http://`, and a POST does not survive it.
@@ -485,8 +486,9 @@ Refuted, with the reason they were left unchanged:
     manager (a mounted app's own lifespan never runs).
 - **Stateless JSON responses.** Every tool takes the environment session id, so MCP needs no
   transport session. Plain JSON also passes proxies that buffer event streams (the Space).
-- **Host and Origin checks on `/mcp`** (DNS rebinding protection). They are on by default for the
-  localhost forms. A deployment sets `SLIDETWIN_MCP_ALLOWED_HOSTS` to its host name, or `*`.
+- **Host and Origin checks** (DNS rebinding protection) on every route, `/mcp` included. They are
+  on by default for the localhost forms. A deployment sets `SLIDETWIN_ALLOWED_HOSTS` to its host
+  name, or `*` (changed in the review below; first only `/mcp` was checked).
 - **Logs.** MCP actions are logged with `client = {"via": "mcp"}`. A test runs the same actions
   through REST and MCP and finds the same parameters, costs, states, pixel hashes and errors.
 - **Agents are clients.** They never import the core. `Env` gives one interface over REST and MCP,
@@ -540,10 +542,13 @@ Refuted, with the reason they were left unchanged:
   - Groups: `Tumor`, `_0`, `_1` are tumour; `Exclusion`, `_2` are holes. Other groups are skipped.
   - The demo slides' annotations hold only `Tumor` polygons.
 - **Deposits (draft definition, needs pathologist review).**
-  - Tumour polygons are drawn on an 8 um grid, minus exclusions. Polygons whose cells touch
-    (8-connected) form one deposit.
+  - A cell of an 8 um grid is tumour when its centre lies inside a tumour polygon and inside no
+    exclusion. Tumour cells that touch (8-connected) form one deposit.
   - A deposit's size is its greatest dimension: the largest distance between two vertices of its
-    polygons (the Feret diameter over their convex hull).
+    polygons (the Feret diameter over their convex hull). Where an exclusion cuts or touches a
+    deposit, the polygons no longer give its outline, and the size comes from the grid: the
+    largest distance between two cell centres, plus one cell. A polygon smaller than one cell is
+    a deposit of its own.
   - On the demo slides this gives 4.05 mm (`c16_fa751c`), 1.27 mm (`c16_aba3ae`), 0.28 mm
     (`c16_2abf4f`) and 4.74 mm (`c16_683d2d`), which agrees with the categories in the manifest.
 - **Metrics of a reading** (`eval/metrics.py`).
@@ -552,8 +557,10 @@ Refuted, with the reason they were left unchanged:
   - Lesions: whether a view at 10x (screening) or 20x (confirmation) showed tumour, the tumour
     share seen at 10x, and the virtual time to the first such view.
   - Evidence: whether each finding's evidence views show tumour.
-  - Size error: the reported size (the largest cited measurement, else `largest_deposit_mm`)
+  - Size error: the reported size (`largest_deposit_mm`, else the largest cited measurement)
     against the largest deposit.
+  - The screening and confirmation magnifications come from the protocol in the reading's log
+    header (10x and 20x in `sln_metastasis`), the same values its rule checks used.
   - "Shows tumour" means at least one 8 um tumour cell has its centre inside the view.
 - **Pictures** (`eval/visualize.py`). They go to `data/eval/` and stay out of git, because the
   CAMELYON licence terms are unclear.
@@ -583,7 +590,8 @@ Refuted, with the reason they were left unchanged:
     `SLIDETWIN_FETCH_SLIDES=1`) downloads each manifest slide with a `source_url`, checks the pinned
     sha256 and renames the file only after the hash matches. It keeps files that are already
     present and correct, and skips slides without a URL.
-  - A slide that fails to download is reported when it is opened; the server still starts.
+  - A slide that fails to download is reported when it is opened; the server still starts, also
+    when the slide folder is read-only or the manifest cannot be read.
 - **Image.** `python -m slidetwin.serve` runs uvicorn with one worker (sessions live in memory)
   and trusts proxy headers (`FORWARDED_ALLOW_IPS`), so the rate limit sees the real client.
   - `/data/slides` belongs to the image's user, so downloads work without a volume. A volume
@@ -593,6 +601,14 @@ Refuted, with the reason they were left unchanged:
 - **Rate limit** (SPEC 14). A token bucket per client address on `/api` and `/mcp`, answered with
   `RATE_LIMITED` (429, `Retry-After`). It is off by default, so that local agents run at full
   speed. The image turns it on at 20 requests per second, with bursts of 60.
+  - Images of views already served are not limited: the UI fetches one after every move.
+  - Behind a proxy the client is the last `X-Forwarded-For` entry, the address the proxy saw
+    (`SLIDETWIN_RATE_LIMIT_CLIENT_HEADER`, set in the image). The first entries are written by the
+    client and could be forged for a fresh bucket per request. A local `docker run` without a
+    proxy can still be fooled this way; there the limit only guards against runaway loops.
+- **Session slots.** When all slots are taken, the least recently used session idle for at least
+  15 minutes (`SLIDETWIN_SESSION_EVICT_IDLE_S`) gives its slot to the new one; its log stays on
+  disk. Abandoned tabs therefore cannot block a public server for the two-hour idle timeout.
 - **Restarts.** The start screen says that sessions live in memory and that the trajectory should
   be downloaded at the end.
 - **Pilot.**
@@ -615,3 +631,76 @@ Refuted, with the reason they were left unchanged:
 - **README animation.** Recorded from the UI on the CC0 test slide (`scripts/make_readme_gif.py`).
   The CAMELYON images are not used outside the running app.
 
+## Review of M3-M7 (2026-10-15)
+
+Four reviewers checked the new code independently: the web UI, the MCP adapter and client, the
+agents, and the evaluation and deployment tools. Each finding was reproduced (live server, headless
+browser, synthetic and demo slides) before it counted. They confirmed 37 defects, none critical,
+and one deployment risk. All are fixed, with a regression test for each that can be tested
+automatically.
+
+- **UI (13).**
+  - High: an annotation label form left open across a view change saved the point on the new
+    view. It is now dropped, with a message.
+  - High: when a view image failed to load, the page kept the old view while the session had
+    moved, so later measurements went to an unseen view. Images are fetched again, up to three
+    times. After that the page shows no view, tools refuse to act, and R loads the view again.
+    Tools also check that the view on screen is the session's current one.
+  - Medium:
+    - Enter in a report field submitted the report and ended the session; it no longer does.
+    - The size field accepted only two decimals.
+  - Low:
+    - Keys acted behind the Help dialog.
+    - Tool buttons kept the keyboard focus, so the cursor keys panned.
+    - Right clicks and stray releases placed points.
+    - A language switch re-enabled controls after the report.
+    - Profiles without automatic views could not be read; the page now asks for the view.
+    - Focus was lost when buttons were rebuilt.
+    - Some labels were English only, including a hard-coded "OK".
+    - Old scripts stayed cached after a redeploy. Static files are now always revalidated, and
+      the client metadata names the UI build.
+- **MCP adapter and client (6).**
+  - MCP silently dropped unknown arguments and decoded JSON held in strings, where REST answered
+    422; arguments are now validated against each tool's schema first.
+  - The host check covered `/mcp` but not `/api`, so a rebinding page could read slides through
+    REST. It is now one check for every route (`SLIDETWIN_ALLOWED_HOSTS`, `SLIDETWIN_ALLOWED_ORIGINS`),
+    and `*` works for origins too.
+  - HTTP-level refusals (429, 413, 421) reached MCP agents as bare SDK errors; they are now
+    `EnvError`s.
+  - Unexpected failures came back as argument errors; they are now `INTERNAL`.
+  - MCP results now pass through the REST response models, so both return identical JSON (a test
+    compares every field).
+- **Agents (7 and 1 latent).**
+  - High: a flag in a tissue piece nested inside another piece's box was charged to the larger
+    piece, and the smaller piece got a negative claim. Flags now count against every piece whose
+    box they touch.
+  - High: near a slide edge, the first 20x look could miss the flagged region, because the move
+    was clamped at 10x. The agent now switches magnification before moving, and makes a finding
+    only when the view shows the region.
+  - Medium:
+    - The LLM's report tool schema had references that resolved nowhere.
+    - A refused action (an exhausted budget, a missing magnification) lost the whole reading. The
+      agents now stop and still report, with negative claims only for fully scanned pieces.
+  - Low:
+    - Reports could exceed the 200-claim limit.
+    - Malformed LLM arguments crashed the loop.
+    - The LLM tool list ignored the profile (no crop under `unconstrained`).
+    - Latent: the serpentine thresholds were fixed at 10x and 20x; they now come from the
+      session's protocol and the slide's presets.
+- **Evaluation and deployment (11 and a note).**
+  - Medium:
+    - Calibration used the UI's automatic thumbnail as a human action, and its bootstrap fell back
+      to placeholder values. Automatic actions are now skipped, and intervals use only resamples
+      that hold the action.
+    - The rate limit trusted the client-written first `X-Forwarded-For` entry.
+  - Low:
+    - Negative slides could never score a correct category.
+    - The tumour raster added a band of cells on the top and left of every polygon (Pillow
+      truncates vertices). Cells are now taken by their centres, drawn 8x finer.
+    - Exclusions did not split deposits.
+    - A failed download could stop the server from starting.
+    - The size error ignored a stated size when a measurement was cited.
+    - The metrics fixed 10x and 20x instead of reading the protocol.
+    - Two tests did not test what they claimed (break exclusion, the import isolation check).
+    - The image depended on the builder's umask.
+  - The note: abandoned sessions could hold all slots for two hours; see "Session slots" above.

@@ -62,9 +62,30 @@ def test_fetch_checks_hashes_and_keeps_good_files(
     assert not fetch_slides.fetch_one(down, tmp_path, http)
     assert fetch_slides.fetch_one(loose, tmp_path, http)  # no pin: any content is kept
     err = capsys.readouterr().err
-    for text in ["present", "sha256 does not match", "no source_url", "download failed", "done in"]:
+    for text in [
+        "present",
+        "sha256 does not match",
+        "no source_url",
+        "failed (HTTPStatusError",
+        "done in",
+    ]:
         assert text in err
     assert not fetch_slides.fetch_all([good, local], tmp_path, http)
+
+
+def test_fetch_never_raises_on_a_read_only_folder(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    good, *_ = entries()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        assert not fetch_slides.fetch_one(good, locked, client())
+    finally:
+        locked.chmod(0o700)
+    assert "failed (PermissionError" in capsys.readouterr().err
+    assert not list(locked.rglob("*"))
 
 
 def test_fetch_command_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,4 +116,12 @@ def test_entry_point_fetches_then_serves(
     assert runs[0]["forwarded_allow_ips"] == "*"
     serve.main({})
     assert len(fetched) == 1  # not asked to fetch
+
+    def broken(argv: list[str]) -> int:
+        raise ValueError("manifest unreadable")
+
+    monkeypatch.setattr(serve.fetch_slides, "main", broken)
+    serve.main({"SLIDETWIN_FETCH_SLIDES": "1"})
+    assert len(runs) == 3  # the server still starts
+    assert "manifest unreadable" in capsys.readouterr().err
     assert (runs[1]["host"], runs[1]["port"]) == ("0.0.0.0", 7860)

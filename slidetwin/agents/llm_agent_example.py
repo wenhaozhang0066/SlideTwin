@@ -64,13 +64,25 @@ NUMBER = {"type": "number"}
 POINT = {"type": "array", "items": NUMBER, "minItems": 2, "maxItems": 2}
 
 
-def tools(report_schema: dict[str, Any]) -> list[dict[str, Any]]:
-    """The tools offered to the model, in the Anthropic format (converted for OpenAI)."""
-    return [
+def tools(
+    report_schema: dict[str, Any], *, thumbnail: bool = True, crop: bool = False
+) -> list[dict[str, Any]]:
+    """The tools offered to the model, in the Anthropic format (converted for OpenAI). The
+    thumbnail and crop tools follow the profile's rules."""
+    # The report schema refers to its parts through "#/$defs/...", which must resolve from the
+    # root of the tool's input schema; a nested "$schema" key is not allowed there.
+    report = {k: v for k, v in report_schema.items() if k not in {"$defs", "$schema"}}
+    out = [
         _tool(
             "get_thumbnail",
             "The whole slide at low resolution, its um per pixel and its numbered tissue pieces.",
             {},
+        ),
+        _tool(
+            "crop",
+            "A free rectangle of the slide (x_um, y_um: top-left corner; w_um, h_um: size), "
+            "scaled to the viewport and never past the native resolution. Returns it as a view.",
+            {"x_um": NUMBER, "y_um": NUMBER, "w_um": NUMBER, "h_um": NUMBER},
         ),
         _tool(
             "set_magnification",
@@ -99,9 +111,13 @@ def tools(report_schema: dict[str, Any]) -> list[dict[str, Any]]:
             "submit_report",
             "Submit the final report. It is checked against the rules; an accepted report ends "
             "the reading.",
-            {"report": report_schema},
+            {"report": report},
         ),
     ]
+    if "$defs" in report_schema:
+        out[-1]["input_schema"]["$defs"] = report_schema["$defs"]
+    skip = ({"get_thumbnail"} if not thumbnail else set()) | ({"crop"} if not crop else set())
+    return [t for t in out if t["name"] not in skip]
 
 
 SYSTEM = """\
@@ -158,6 +174,7 @@ async def execute(session: EnvSession, call: ToolCall) -> Outcome:
             "set_magnification": lambda: session.set_magnification(args["mag"]),
             "pan": lambda: session.pan(args["dx"], args["dy"]),
             "move_to": lambda: session.move_to(args["x_um"], args["y_um"]),
+            "crop": lambda: session.crop(args["x_um"], args["y_um"], args["w_um"], args["h_um"]),
         }
         if call.name in moves:
             step = await moves[call.name]()
@@ -171,6 +188,8 @@ async def execute(session: EnvSession, call: ToolCall) -> Outcome:
             return Outcome(json.dumps(receipt), report=receipt)
     except KeyError as err:
         return Outcome(json.dumps({"error": f"Missing argument {err}."}), is_error=True)
+    except (TypeError, ValueError) as err:  # e.g. a point given as null or as a number
+        return Outcome(json.dumps({"error": f"Invalid arguments: {err}."}), is_error=True)
     except EnvError as err:
         return Outcome(json.dumps({"error": err.body}), is_error=True)
     return Outcome(json.dumps({"error": f"Unknown tool {call.name}."}), is_error=True)
@@ -401,7 +420,12 @@ async def run(
         mags=", ".join(f"{m:g}x" for m in s.slide["available_mags"]),
         view=json.dumps(_view_summary(s.first)),
     )
-    chat.start(system_prompt(s), tools(await env.report_schema()), first, s.first.image or b"")
+    offered = tools(
+        await env.report_schema(),
+        thumbnail=bool(s.rules["thumbnail"]["allowed"]),
+        crop=bool(s.rules["crop"]["allowed"]),
+    )
+    chat.start(system_prompt(s), offered, first, s.first.image or b"")
     notes: list[str] = []
     receipt: dict[str, Any] | None = None
     nudges = 0

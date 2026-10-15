@@ -21,6 +21,7 @@ from typing import Any, Protocol, Self
 
 import httpx2 as httpx
 from mcp import Client
+from mcp.shared.exceptions import MCPError
 
 # Action name -> (HTTP method, path after /api/sessions/{id}/, the response may carry an image).
 SESSION_ROUTES: dict[str, tuple[str, str, bool]] = {
@@ -132,15 +133,36 @@ class McpTransport:
         self._stack = AsyncExitStack()
 
     async def open(self) -> None:
-        await self._stack.enter_async_context(self._client)
+        try:
+            await self._stack.enter_async_context(self._client)
+        except Exception as err:  # often an ExceptionGroup from the SDK's task group
+            raise EnvError(
+                {
+                    "code": "MCP_CONNECT_FAILED",
+                    "message": f"Could not open the MCP connection ({type(err).__name__}).",
+                    "hint": "Check the URL (it ends in /mcp) and that the server accepts this host "
+                    "name (SLIDETWIN_ALLOWED_HOSTS).",
+                }
+            ) from err
 
     async def _tool(self, name: str, args: dict[str, Any]) -> Any:
-        result = await self._client.call_tool(name, args)
+        try:
+            result = await self._client.call_tool(name, args)
+        except MCPError as err:
+            # The HTTP layer refused the request (rate limit, body size, host check) or the
+            # connection failed; the REST envelope of such a refusal does not reach MCP clients.
+            raise EnvError(
+                {
+                    "code": "MCP_TRANSPORT_ERROR",
+                    "message": f"The MCP request failed: {err.message}",
+                    "hint": "Retry later; the server may be rate limiting this address.",
+                }
+            ) from err
         if result.is_error:
             body = (result.structured_content or {}).get("error")
-            if body is None:  # rejected by the SDK's argument check, before the environment
+            if body is None:  # an error the server did not describe (e.g. an unknown tool)
                 text = " ".join(b.text for b in result.content if b.type == "text")
-                body = {"code": "INVALID_PARAMETER", "message": text}
+                body = {"code": "MCP_TOOL_ERROR", "message": text}
             raise EnvError(body)
         return result
 

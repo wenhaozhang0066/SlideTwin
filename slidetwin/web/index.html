@@ -57,10 +57,10 @@
     </main>
 
     <main id="reader" class="screen reader-screen" hidden>
-      <section id="stage" class="stage" aria-label="Slide view">
+      <section id="stage" class="stage" data-i18n-label="view.region">
         <div id="canvas-box" class="canvas-box">
-          <canvas id="view-canvas" role="img" aria-label=""></canvas>
-          <canvas id="overlay-canvas" class="overlay" tabindex="0" aria-label=""></canvas>
+          <canvas id="view-canvas" role="img" data-i18n-label="view.region"></canvas>
+          <canvas id="overlay-canvas" class="overlay" tabindex="0" data-i18n-label="view.aria"></canvas>
         </div>
         <div id="scale-bar" class="scale-bar" aria-hidden="true"><div class="bar"></div><span></span></div>
         <div id="view-info" class="view-info"></div>
@@ -69,7 +69,7 @@
       <aside class="panel">
         <section>
           <h2 data-i18n="reader.overview"></h2>
-          <canvas id="minimap" class="minimap" tabindex="0" aria-label=""></canvas>
+          <canvas id="minimap" class="minimap" tabindex="0" data-i18n-label="overview.aria"></canvas>
           <small class="muted" data-i18n="reader.overview_hint"></small>
         </section>
 
@@ -89,7 +89,7 @@
           <p id="tool-hint" class="muted"></p>
           <form id="label-form" class="label-form" hidden>
             <label><span data-i18n="annotate.label"></span> <input id="label-input" maxlength="64" required /></label>
-            <button type="submit" class="primary">OK</button>
+            <button type="submit" class="primary" data-i18n="annotate.save"></button>
           </form>
           <p id="timer" class="muted" hidden></p>
           <small class="muted keys" data-i18n="reader.keys"></small>
@@ -100,7 +100,7 @@
           <form id="report-form">
             <label><span data-i18n="report.metastasis"></span><select id="r-metastasis" required></select></label>
             <label><span data-i18n="report.category"></span><select id="r-category" required></select></label>
-            <label><span data-i18n="report.largest"></span><input id="r-largest" type="number" min="0" step="0.01" /></label>
+            <label><span data-i18n="report.largest"></span><input id="r-largest" type="number" min="0" step="any" /></label>
             <label><span data-i18n="report.ene"></span><select id="r-ene" required></select></label>
             <h3 data-i18n="report.claims"></h3>
             <ul id="claims" class="claims"></ul>

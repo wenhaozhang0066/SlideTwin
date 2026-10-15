@@ -21,6 +21,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SLIDETWIN_FETCH_SLIDES=1 \
     SLIDETWIN_RATE_LIMIT_PER_S=20 \
     SLIDETWIN_RATE_LIMIT_BURST=60 \
+    SLIDETWIN_RATE_LIMIT_CLIENT_HEADER=x-forwarded-for \
     FORWARDED_ALLOW_IPS=*
 
 RUN useradd --create-home --uid 1000 user && mkdir -p /data/slides && chown -R user /data
@@ -28,7 +29,8 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY slidetwin ./slidetwin
 COPY configs ./configs
-RUN pip install .
+# COPY keeps the build context's file modes; make the app readable whatever the builder's umask.
+RUN chmod -R a+rX /app && pip install .
 
 USER user
 EXPOSE 7860

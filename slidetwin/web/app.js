@@ -32,18 +32,29 @@ const S = {
   busy: false,
   closed: false,
   showTimer: false,
-  drag: null,
+  drag: null, // a pan by dragging, started with the primary button on the view
+  press: false, // a tool click started on the view with the primary button
+  stale: null, // a view the server served but the page could not show (press R to retry)
+  receipt: null,
+  lastMove: 0, // time of the last action started by a key (held keys repeat)
+  version: "",
 };
+
+const MOVES = new Set(["magnification", "pan", "move_to"]);
 
 // --- messages and i18n ------------------------------------------------------------------------
 
 function applyI18n() {
   document.documentElement.lang = currentLang();
   for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll("[data-i18n-label]")) {
+    el.setAttribute("aria-label", t(el.dataset.i18nLabel));
+  }
   if (S.sid) {
     renderTools();
     renderReportForm();
     updateInfo();
+    if (S.receipt) renderReceipt(S.receipt);
   }
 }
 
@@ -67,6 +78,7 @@ function explain(err) {
 function clientMeta(input) {
   return {
     ui: "web",
+    ui_version: S.version,
     input,
     display_scale: Math.round(geo.deviceScale(S.cssPerView, S.dpr) * 1e4) / 1e4,
     device_pixel_ratio: S.dpr,
@@ -83,8 +95,13 @@ async function act(name, body, input) {
   if (S.busy || (S.closed && name !== "report")) return null;
   setBusy(true);
   try {
-    const res = await api.action(S.sid, name, { ...body, client: clientMeta(input) });
+    let res = await api.action(S.sid, name, { ...body, client: clientMeta(input) });
     S.state = res.state;
+    if (MOVES.has(name) && !S.rules.auto_view) {
+      // A profile without automatic views: the page asks for the view a reader expects to see.
+      res = await api.action(S.sid, "view", { client: clientMeta("auto") });
+      S.state = res.state;
+    }
     const obs = res.observation;
     if (obs && (obs.type === "view" || obs.type === "crop")) await showView(obs);
     updateInfo();
@@ -109,13 +126,59 @@ function loadImage(url) {
 
 // --- the view ----------------------------------------------------------------------------------
 
+/** Show a served view. The image is fetched again after a failure; if it still cannot be shown,
+the page shows no view (tools then refuse to act on a view the reader never saw) until R reloads
+it. A pending annotation label is dropped: its points belong to the previous view. */
 async function showView(obs) {
-  S.viewImg = await loadImage(obs.image.url);
-  S.view = obs;
+  let img = null;
+  for (const wait of [0, 400, 1200]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      img = await loadImage(obs.image.url);
+      break;
+    } catch {
+      img = null;
+    }
+  }
+  if (S.pending) {
+    cancelLabel();
+    say(t("annotate.cancelled"));
+  }
   S.points = [];
   S.cursor = null;
+  if (!img) {
+    S.view = null;
+    S.stale = obs;
+    const canvas = $("view-canvas");
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    $("overlay-canvas").getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    say(t("view.load_failed", { id: obs.view_id }), true);
+    return;
+  }
+  S.viewImg = img;
+  S.view = obs;
+  S.stale = null;
   layoutStage();
   draw();
+}
+
+async function retryView() {
+  if (!S.stale || S.busy) return;
+  setBusy(true);
+  try {
+    await showView(S.stale);
+    if (S.view) say("");
+    updateInfo();
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** The view on screen is the session's current view (measure and annotate act on that one). */
+function viewIsCurrent() {
+  if (S.view && S.state && S.view.view_id === S.state.current_view_id) return true;
+  say(t("view.not_current"));
+  return false;
 }
 
 function layoutStage() {
@@ -292,6 +355,7 @@ async function loadThumbnail() {
 
 function renderMagButtons() {
   const box = $("mag-buttons");
+  const focused = document.activeElement?.dataset?.mag;
   box.replaceChildren();
   const avail = new Set(S.slide.available_mags);
   for (const m of S.rules.magnifications) {
@@ -299,11 +363,12 @@ function renderMagButtons() {
     b.type = "button";
     b.textContent = `${m}x`;
     b.dataset.mag = String(m);
-    b.disabled = !avail.has(m);
-    if (b.disabled) b.title = t("reader.unavailable");
+    b.disabled = !avail.has(m) || S.closed;
+    if (!avail.has(m)) b.title = t("reader.unavailable");
     b.setAttribute("aria-pressed", String(S.state && S.state.mag === m));
     b.addEventListener("click", () => setMag(m, "button"));
     box.append(b);
+    if (focused === b.dataset.mag) b.focus();
   }
 }
 
@@ -360,10 +425,13 @@ function viewPoint(ev) {
 }
 
 function onPointerDown(ev) {
-  if (!S.view || S.busy || S.closed) return;
+  S.press = false;
+  if (!S.view || S.busy || S.closed || ev.button !== 0) return;
   if (S.tool === "navigate") {
     S.drag = { x: ev.clientX, y: ev.clientY };
     ev.target.setPointerCapture(ev.pointerId);
+  } else {
+    S.press = true;
   }
 }
 
@@ -387,7 +455,9 @@ async function onPointerUp(ev) {
     }
     return;
   }
-  if (!S.view || S.busy || S.closed) return;
+  const pressed = S.press;
+  S.press = false;
+  if (!pressed || ev.button !== 0 || !S.view || S.busy || S.closed) return;
   await placePoint(viewPoint(ev), "click");
 }
 
@@ -415,6 +485,7 @@ function moveCursor([dx, dy]) {
 async function measure(input) {
   const [p1, p2] = S.points;
   S.points = [];
+  if (!viewIsCurrent()) return drawOverlay();
   const res = await act("measure", { p1_px: p1, p2_px: p2 }, input);
   if (!res) return drawOverlay();
   const m = res.observation;
@@ -440,6 +511,7 @@ async function saveAnnotation(ev) {
   ev.preventDefault();
   const label = $("label-input").value.trim();
   if (!S.pending || !label) return;
+  if (!viewIsCurrent()) return cancelLabel();
   const { geometry, input } = S.pending;
   cancelLabel();
   S.points = [];
@@ -456,7 +528,7 @@ async function saveAnnotation(ev) {
 // --- keyboard ----------------------------------------------------------------------------------
 
 async function onKey(ev) {
-  if (!S.sid || S.closed || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (!S.sid || S.closed || ev.ctrlKey || ev.metaKey || ev.altKey || $("help").open) return;
   const target = ev.target;
   if (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) {
     if (ev.key === "Escape") cancelLabel();
@@ -488,14 +560,22 @@ async function onKey(ev) {
   const tools = { n: "navigate", m: "measure", p: "point", g: "polygon" };
   const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   if (tools[key]) return setTool(tools[key]);
+  if (key === "r") return retryView();
+  // A held key repeats; let it move at most about three times a second.
+  if (ev.repeat && performance.now() - S.lastMove < 300) {
+    ev.preventDefault();
+    return;
+  }
   const mag = geo.presetForKey(ev.key, S.rules.magnifications);
   if (mag !== null) {
     ev.preventDefault();
+    S.lastMove = performance.now();
     return setMag(mag, "key");
   }
   const pan = geo.panForKey(ev.key);
   if (pan) {
     ev.preventDefault();
+    S.lastMove = performance.now();
     await act("pan", { dx: pan[0], dy: pan[1] }, "key");
   }
 }
@@ -547,10 +627,15 @@ function renderClaims() {
       detail = claim.scope ? t("report.scope_piece", { n: claim.scope.split(":")[1] }) : t("report.scope_slide");
     }
     head.textContent = `${claim.id} · ${claim.type} · ${detail}`;
-    const remove = Object.assign(document.createElement("button"), { type: "button", textContent: t("report.remove") });
+    const remove = Object.assign(document.createElement("button"), {
+      type: "button",
+      textContent: t("report.remove"),
+      disabled: S.closed,
+    });
     remove.addEventListener("click", () => {
       S.claims = S.claims.filter((c) => c !== claim);
       renderClaims();
+      $("add-finding").focus();
     });
     head.append(remove);
     const text = Object.assign(document.createElement("input"), {
@@ -558,6 +643,7 @@ function renderClaims() {
       maxLength: 2000,
       required: true,
       placeholder: t("report.claim_text"),
+      disabled: S.closed,
     });
     text.setAttribute("aria-label", t("report.claim_text"));
     text.addEventListener("input", () => (claim.text = text.value));
@@ -601,7 +687,17 @@ function checksList(checks) {
 
 function showReceipt(receipt) {
   S.closed = true;
+  S.receipt = receipt;
   showFeedbackForm();
+  renderReceipt(receipt);
+  for (const el of document.querySelectorAll(
+    "#report-form button, #report-form input, #report-form select, #report-form textarea, #mag-buttons button, #tool-buttons button",
+  )) {
+    el.disabled = true;
+  }
+}
+
+function renderReceipt(receipt) {
   const box = $("receipt");
   const cov = receipt.coverage;
   box.replaceChildren(
@@ -614,9 +710,6 @@ function showReceipt(receipt) {
     Object.assign(document.createElement("p"), { className: "muted", textContent: t("receipt.closed") }),
   );
   box.hidden = false;
-  for (const el of document.querySelectorAll("#report-form button, #mag-buttons button, #tool-buttons button")) {
-    el.disabled = true;
-  }
 }
 
 // --- pilot feedback (optional, after the report) ---------------------------------------------------
@@ -675,13 +768,15 @@ function option(value, text) {
 
 async function loadCatalogue() {
   try {
-    const [slides, profiles, protocols, schema] = await Promise.all([
+    const [slides, profiles, protocols, schema, health] = await Promise.all([
       api.slides(),
       api.profiles(),
       api.protocols(),
       api.reportSchema(),
+      api.health(),
     ]);
     S.schema = schema;
+    S.version = `${health.version}+${health.git_sha}`;
     $("slide-select").replaceChildren(...slides.slides.map((s) => option(s.id, s.id)));
     $("profile-select").replaceChildren(...profiles.profiles.map((p) => option(p.id, `${p.id} — ${p.description}`)));
     $("protocol-select").replaceChildren(...protocols.protocols.map((p) => option(p.protocol_id, p.title)));
@@ -760,8 +855,12 @@ function init() {
     drawMinimap();
   });
   for (const b of $("tool-buttons").querySelectorAll("button")) {
-    b.addEventListener("click", () => setTool(b.dataset.tool));
+    b.addEventListener("click", () => {
+      setTool(b.dataset.tool);
+      $("overlay-canvas").focus(); // the arrow keys and Space then drive the tool
+    });
   }
+  overlay.addEventListener("contextmenu", (ev) => ev.preventDefault());
   $("label-form").addEventListener("submit", saveAnnotation);
   $("add-finding").addEventListener("click", () => {
     if (S.view) addClaim(rep.findingClaim(rep.nextClaimId(S.claims), "", [S.view.view_id]));
@@ -775,6 +874,10 @@ function init() {
     addClaim(rep.negativeClaim(rep.nextClaimId(S.claims), "", v === "" ? null : Number(v)));
   });
   $("report-form").addEventListener("submit", submitReport);
+  // Enter in a field must not submit the report: submitting ends the session.
+  $("report-form").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && ev.target.tagName === "INPUT") ev.preventDefault();
+  });
   $("negative-scope").addEventListener("change", drawMinimap);
   document.addEventListener("keydown", onKey);
   window.addEventListener("resize", () => {

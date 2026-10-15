@@ -15,7 +15,7 @@ test("every key the UI uses exists", () => {
   const html = readFileSync(new URL("index.html", WEB), "utf8");
   const app = readFileSync(new URL("app.js", WEB), "utf8");
   const used = new Set([
-    ...[...html.matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]),
+    ...[...html.matchAll(/data-i18n(?:-label)?="([^"]+)"/g)].map((m) => m[1]),
     ...[...app.matchAll(/\bt\("([^"]+)"/g)].map((m) => m[1]),
     ...[...app.matchAll(/"((?:tool|status)\.[a-z_]+)"/g)].map((m) => m[1]),
   ]);

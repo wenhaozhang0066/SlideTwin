@@ -95,7 +95,7 @@ curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
 Settings come from environment variables: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_SLIDE_DIR`,
 `SLIDETWIN_LOG_DIR` (required; trajectories are written there as they happen), `SLIDETWIN_CACHE_DIR`,
 `SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`, `SLIDETWIN_SESSION_MAX_AGE_S`,
-`SLIDETWIN_MAX_BODY_BYTES`, `SLIDETWIN_MCP_ALLOWED_HOSTS`, `SLIDETWIN_MCP_ALLOWED_ORIGINS`. The
+`SLIDETWIN_MAX_BODY_BYTES`, `SLIDETWIN_ALLOWED_HOSTS`, `SLIDETWIN_ALLOWED_ORIGINS`. The
 default viewport is 1280 x 1024 px (see docs/DECISIONS.md).
 
 ## MCP and agents
@@ -108,7 +108,7 @@ claude mcp add --transport http slidetwin http://localhost:7860/mcp
 ```
 
 Other clients have their own commands; see their documentation. On a public host name, set
-`SLIDETWIN_MCP_ALLOWED_HOSTS` to that name (the default accepts localhost only).
+`SLIDETWIN_ALLOWED_HOSTS` to that name (the default accepts localhost only).
 
 Baseline agents run on your machine against a server, through REST or MCP:
 
@@ -151,7 +151,7 @@ docker run -p 7860:7860 -e SLIDETWIN_FETCH_SLIDES=0 \
 ```
 
 The image limits each client to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
-Hugging Face Space, also set `SLIDETWIN_MCP_ALLOWED_HOSTS` to the Space's host name. Sessions live
+Hugging Face Space, also set `SLIDETWIN_ALLOWED_HOSTS` to the Space's host name. Sessions live
 in memory, so a restart ends them: download the trajectory at the end. If the download does not
 start inside the Hugging Face page, open the Space in its own tab.
 

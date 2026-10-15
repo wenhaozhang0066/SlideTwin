@@ -518,6 +518,7 @@ def test_cmu_slide_through_the_api(cmu_small_path: Path, tmp_path: Path) -> None
         slide_dir=cmu_small_path.parent.parent,
         log_dir=tmp_path / "logs",
         cache_dir=tmp_path / "cache",
+        allowed_hosts=("testserver",),
     )
     with TestClient(create_app(settings)) as client:
         data = open_session(client, slide_id="cmu1_small", viewport_px=[1024, 768])
