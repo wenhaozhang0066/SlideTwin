@@ -6,6 +6,8 @@ show depends on it), then M3, M4, M6, M7. Commits stay labelled by milestone.
 
 ## M5: rules and report (SPEC 5.4)
 
+Done 2026-10-15; see DECISIONS.md ("M5: rules and coverage").
+
 - `core/coverage.py`:
   - Builds the tissue mask on the coverage grid (`protocol.coverage.grid_um`, default 32 um). It
     renders the slide at one pixel per cell, thresholds saturation with Otsu, and drops specks.
@@ -27,6 +29,8 @@ show depends on it), then M3, M4, M6, M7. Commits stay labelled by milestone.
 - Tests: a passing and a failing case for every rule, and coverage on hand-made masks and views.
 
 ## M3: web UI (SPEC 10)
+
+Done 2026-10-15; what was built and why is in DECISIONS.md ("M3: web UI").
 
 - Vanilla ES-module JavaScript and Canvas in `slidetwin/web/`, served by FastAPI at `/`. It uses only the
   public REST API: no tile endpoint, no tile viewer.

@@ -419,3 +419,50 @@ Refuted, with the reason they were left unchanged:
     session stays open, so the reader can look further and submit again.
 - **Tissue map caching.** Cached per open slide source, which holds one entry per slide in the
   registry, and dropped with it.
+
+## M3: web UI (2026-10-15)
+
+- **No framework, no build step.** Plain ES modules and Canvas: there is nothing to install or bundle,
+  and the page is small enough to read in full. Alternatives were React or Svelte with a bundler, which
+  add a toolchain for a page with one canvas and one form.
+- **Same-origin page under a strict Content Security Policy.**
+  - No CDN, web font or analytics: a reader's browser makes no third-party requests, and the UI works
+    offline.
+  - A side effect: Playwright's `wait_for_function` uses `eval`, which the policy blocks. The browser
+    tests wait on locators instead and keep the policy on.
+- **Display at one device pixel per view pixel** when the window allows (JSP 8.2); otherwise the view
+  shrinks to fit and is never enlarged. The scale used is logged with every action.
+- **A drag sends one `pan` on release** (SPEC 10.1). The image follows the pointer with a CSS
+  translation, but no pixels are fetched during the drag: live panning would have to show unlogged
+  pixels or log dozens of pans per gesture.
+- **Overview.** The thumbnail is fetched once when the session starts, if the profile allows it. It is
+  logged with `input: auto` and costs `thumbnail_s` like any thumbnail.
+  - Tissue pieces are numbered only where their box on the overview is large enough to hold a number;
+    the piece chosen as the scope of a negative statement is outlined.
+- **Keyboard.** SPEC 10.2 asks that everything work from the keyboard.
+  - Keys 1-6 select presets in the profile's order. W/A/S/D pan half a viewport, and the arrow keys
+    pan too while navigating. N, M, P and G choose a tool. Esc cancels.
+  - With a tool, the arrow keys move a cursor on the view (10 px, or 50 px with Shift). Space places a
+    point there; Enter finishes a polygon.
+  - On the focused overview, the arrow keys move a cursor and Enter moves the view there.
+  - Shortcuts are ignored while typing in a field and when Ctrl, Alt or Meta is held.
+- **Report form.**
+  - No answer is preselected: each conclusion starts at "Choose...", and the browser stops a submit
+    with missing fields before any request is sent, so the log has no failed attempt.
+  - A preselected answer could anchor the reader and would let an unread form be submitted.
+  - Claims are added from the current view (finding), the last measurement, or a scope (whole slide or
+    a tissue piece), and each needs a statement.
+  - The receipt shows every rule check and the coverage. An enforced refusal lists the failed checks,
+    and the form stays open.
+- **Session end.** After an accepted report the controls are disabled and the trajectory link stays.
+- **Language.** It follows the browser and can be switched. Only the UI strings exist in Chinese; code
+  and documents stay in English (AGENTS.md).
+- **Tests.**
+  - `node --test tests/web/*.test.mjs`: geometry, string keys in both languages, report building.
+  - `tests/api/test_web.py`: static routes, and the check that the UI calls only `/api/` routes.
+  - `tests/e2e`: headless Chromium (Playwright). A full reading with keys, drag, overview (click and
+    keyboard), measuring (pointer and keyboard), annotations and a report, then the downloaded
+    trajectory replays identically. Two smaller tests cover a small window and a bad pseudonym.
+  - Chromium runs on the cluster from `.tools/pw-browsers` (gitignored). CI installs it in a separate
+    `web` job. The e2e tests skip without Playwright unless `SLIDETWIN_REQUIRE_E2E=1`.
+

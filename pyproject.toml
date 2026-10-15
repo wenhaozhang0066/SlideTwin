@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 openslide = ["openslide-python>=1.4", "openslide-bin>=4.0"]
+e2e = ["playwright>=1.45"]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
@@ -76,6 +77,7 @@ addopts = "-ra --strict-markers"
 markers = [
   "testdata: needs the CC0 test slide fetched by scripts/fetch_test_data.py",
   "camelyon: needs local CAMELYON16 slides (set SLIDETWIN_CAMELYON_DIR)",
+  "e2e: drives the web UI in headless Chromium (needs the e2e extra and a browser build)",
 ]
 filterwarnings = [
   # Starlette suggests the httpx2 fork for its TestClient; plain httpx still works.

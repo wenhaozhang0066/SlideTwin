@@ -1,0 +1,90 @@
+/* The image is the subject; the rest stays quiet (SPEC 10.2). Neutral greys around the view so that
+   nothing tints the reading of H&E colours, and one accent (cyan) that is far from H&E pinks and
+   purples, used for the viewport box, focus rings and annotations. */
+:root {
+  --stage: #4a4c4f;
+  --panel: #2b2d30;
+  --panel-2: #36383c;
+  --line: #5a5e63;
+  --text: #ececec;
+  --muted: #b3b7bc;
+  --accent: #19c3d6;
+  --font: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", sans-serif;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; } /* screens and forms set display; hidden must win */
+html, body { margin: 0; height: 100%; }
+body {
+  font: 14px/1.45 var(--font);
+  color: var(--text);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 14px;
+  background: #1f2023;
+  border-bottom: 2px solid var(--accent);
+  font-size: 13px;
+}
+.banner-note { flex: 1; color: var(--text); }
+
+h1 { font-size: 20px; margin: 0 0 8px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+h3 { font-size: 13px; margin: 10px 0 4px; color: var(--muted); }
+.muted { color: var(--muted); }
+
+button, .button, select, input, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+button, .button { padding: 5px 10px; cursor: pointer; text-decoration: none; display: inline-block; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+button.primary { border-color: var(--accent); }
+.link-button { background: none; border: none; color: var(--accent); }
+select, input, textarea { padding: 4px 6px; width: 100%; }
+input[type="checkbox"] { width: auto; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen { flex: 1; min-height: 0; }
+.start-screen { display: flex; align-items: center; justify-content: center; background: var(--stage); }
+.card { width: min(440px, 92vw); background: var(--panel); padding: 20px; border-radius: 6px; display: grid; gap: 10px; }
+label { display: grid; gap: 3px; }
+label.inline, .inline { display: flex; gap: 8px; align-items: center; }
+
+.reader-screen { display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+.stage { position: relative; background: var(--stage); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.canvas-box { position: relative; }
+.canvas-box canvas { display: block; }
+.canvas-box .overlay { position: absolute; left: 0; top: 0; cursor: grab; }
+.canvas-box .overlay.tool { cursor: crosshair; }
+.scale-bar { position: absolute; left: 16px; bottom: 14px; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.scale-bar .bar { height: 6px; background: #fff; border: 1px solid #000; }
+.scale-bar span { font-size: 12px; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+.view-info { position: absolute; right: 14px; bottom: 12px; font-size: 12px; color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
+
+.panel { overflow-y: auto; padding: 12px 14px; display: grid; gap: 16px; align-content: start; background: var(--panel); }
+.minimap { display: block; max-width: 100%; background: #fff; cursor: pointer; }
+.button-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.button-col { display: grid; gap: 6px; }
+.label-form { display: grid; gap: 6px; margin-top: 6px; }
+.scope-row { display: grid; grid-template-columns: minmax(0, 1fr) 9.5em; gap: 6px; }
+.claims { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.claims li { border: 1px solid var(--line); border-radius: 4px; padding: 6px; display: grid; gap: 4px; }
+.claims .claim-head { display: flex; justify-content: space-between; align-items: center; color: var(--muted); }
+#report-form { display: grid; gap: 8px; }
+.receipt { border: 1px solid var(--accent); border-radius: 4px; padding: 8px; display: grid; gap: 6px; }
+.receipt ul { margin: 0; padding-left: 18px; }
+.receipt .fail { font-weight: 600; }
+.keys { display: block; margin-top: 6px; }
+.message { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; max-width: min(720px, 92vw); background: #1f2023; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 14px; z-index: 10; }
+body.busy, body.busy * { cursor: progress !important; }

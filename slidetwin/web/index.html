@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>SlideTwin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body>
+    <header class="banner">
+      <strong>SlideTwin</strong>
+      <span class="banner-note" role="note" data-i18n="banner.research"></span>
+      <button type="button" id="lang-switch" class="link-button" data-i18n="lang.switch"></button>
+    </header>
+
+    <main id="start" class="screen start-screen">
+      <form id="start-form" class="card" novalidate>
+        <h1 data-i18n="start.title"></h1>
+        <p class="muted" data-i18n="start.intro"></p>
+        <label><span data-i18n="start.slide"></span>
+          <select id="slide-select" required></select>
+        </label>
+        <label><span data-i18n="start.profile"></span>
+          <select id="profile-select" required></select>
+        </label>
+        <label><span data-i18n="start.protocol"></span>
+          <select id="protocol-select" required></select>
+        </label>
+        <label><span data-i18n="start.alias"></span>
+          <input id="alias" autocomplete="off" required pattern="[A-Za-z0-9._\-]{1,64}" maxlength="64" />
+          <small class="muted" data-i18n="start.alias_hint"></small>
+        </label>
+        <label class="inline"><input type="checkbox" id="timer-toggle" /> <span data-i18n="start.timer"></span></label>
+        <button type="submit" id="start-button" class="primary" data-i18n="start.button"></button>
+        <p id="start-status" class="muted" aria-live="polite"></p>
+      </form>
+    </main>
+
+    <main id="reader" class="screen reader-screen" hidden>
+      <section id="stage" class="stage" aria-label="Slide view">
+        <div id="canvas-box" class="canvas-box">
+          <canvas id="view-canvas" role="img" aria-label=""></canvas>
+          <canvas id="overlay-canvas" class="overlay" tabindex="0" aria-label=""></canvas>
+        </div>
+        <div id="scale-bar" class="scale-bar" aria-hidden="true"><div class="bar"></div><span></span></div>
+        <div id="view-info" class="view-info"></div>
+      </section>
+
+      <aside class="panel">
+        <section>
+          <h2 data-i18n="reader.overview"></h2>
+          <canvas id="minimap" class="minimap" tabindex="0" aria-label=""></canvas>
+          <small class="muted" data-i18n="reader.overview_hint"></small>
+        </section>
+
+        <section>
+          <h2 data-i18n="reader.mag"></h2>
+          <div id="mag-buttons" class="button-row" role="group"></div>
+        </section>
+
+        <section>
+          <h2 data-i18n="reader.tools"></h2>
+          <div id="tool-buttons" class="button-row" role="group">
+            <button type="button" data-tool="navigate" data-i18n="tool.navigate"></button>
+            <button type="button" data-tool="measure" data-i18n="tool.measure"></button>
+            <button type="button" data-tool="point" data-i18n="tool.point"></button>
+            <button type="button" data-tool="polygon" data-i18n="tool.polygon"></button>
+          </div>
+          <p id="tool-hint" class="muted"></p>
+          <form id="label-form" class="label-form" hidden>
+            <label><span data-i18n="annotate.label"></span> <input id="label-input" maxlength="64" required /></label>
+            <button type="submit" class="primary">OK</button>
+          </form>
+          <p id="timer" class="muted" hidden></p>
+          <small class="muted keys" data-i18n="reader.keys"></small>
+        </section>
+
+        <section id="report-section">
+          <h2 data-i18n="report.title"></h2>
+          <form id="report-form">
+            <label><span data-i18n="report.metastasis"></span><select id="r-metastasis" required></select></label>
+            <label><span data-i18n="report.category"></span><select id="r-category" required></select></label>
+            <label><span data-i18n="report.largest"></span><input id="r-largest" type="number" min="0" step="0.01" /></label>
+            <label><span data-i18n="report.ene"></span><select id="r-ene" required></select></label>
+            <h3 data-i18n="report.claims"></h3>
+            <ul id="claims" class="claims"></ul>
+            <div class="button-col">
+              <button type="button" id="add-finding" data-i18n="report.add_finding"></button>
+              <button type="button" id="add-measurement" data-i18n="report.add_measurement"></button>
+              <div class="scope-row">
+                <button type="button" id="add-negative" data-i18n="report.add_negative"></button>
+                <select id="negative-scope" aria-label=""></select>
+              </div>
+            </div>
+            <label><span data-i18n="report.free_text"></span><textarea id="r-free" rows="3" maxlength="20000"></textarea></label>
+            <button type="submit" id="submit-report" class="primary" data-i18n="report.submit"></button>
+          </form>
+          <div id="receipt" class="receipt" hidden></div>
+        </section>
+
+        <section>
+          <a id="download" class="button" href="#" download data-i18n="download"></a>
+        </section>
+      </aside>
+    </main>
+
+    <div id="message" class="message" role="alert" hidden></div>
+  </body>
+</html>

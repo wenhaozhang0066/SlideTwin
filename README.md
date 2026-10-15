@@ -35,7 +35,8 @@ It supports three kinds of experiments:
 | M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | done |
 | M2 | REST API for every action in SPEC section 7 | done |
 | M5 | Rule checks E1-E4, tissue coverage, enforced and advisory protocols | done |
-| M3, M4, M6, M7 | Web UI, MCP and baseline agents, evaluation, deployment | in progress |
+| M3 | Web reading UI (keyboard and pointer, English and Chinese) | done |
+| M4, M6, M7 | MCP and baseline agents, evaluation, deployment | in progress |
 
 ## Quick start
 
@@ -46,7 +47,11 @@ pytest -q
 uvicorn slidetwin.api.main:app --reload --port 7860
 ```
 
-All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, pytest with the coverage gate).
+Open http://localhost:7860/ to read a slide in the browser, or use the API below.
+
+All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, UI unit tests, pytest with the
+coverage gate). The browser tests need `pip install -e ".[dev,e2e]"` and
+`python -m playwright install chromium`; without them they are skipped.
 
 ## The API in one minute
 

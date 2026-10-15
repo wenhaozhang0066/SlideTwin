@@ -22,7 +22,8 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M1 | 核心引擎：几何、切片读取、会话、账本、轨迹与重放 | 完成 |
 | M2 | 覆盖规格书第 7 节全部动作的 REST API | 完成 |
 | M5 | 规则检查 E1–E4、组织覆盖率、advisory 与 enforced 两种模式 | 完成 |
-| M3、M4、M6、M7 | 人类界面、MCP 与基线 agent、评测、部署 | 进行中 |
+| M3 | 网页阅片界面（键盘与鼠标均可操作，中英文） | 完成 |
+| M4、M6、M7 | MCP 与基线 agent、评测、部署 | 进行中 |
 
 ## 快速开始
 
@@ -32,6 +33,8 @@ python scripts/fetch_test_data.py           # 1.9 MB 的 CC0 测试切片
 pytest -q
 uvicorn slidetwin.api.main:app --reload --port 7860
 ```
+
+在浏览器打开 http://localhost:7860/ 即可阅片；界面语言跟随浏览器，可随时切换。
 
 与 CI 相同的全部检查：`bash scripts/ci_local.sh`。
 

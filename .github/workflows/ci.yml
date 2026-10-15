@@ -38,3 +38,24 @@ jobs:
         env:
           SLIDETWIN_REQUIRE_TESTDATA: "1"
         run: pytest -q --cov --cov-report=term-missing --cov-fail-under=100
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: UI unit tests
+        run: node --test tests/web/*.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -e ".[dev,e2e]"
+          python -m playwright install --with-deps chromium
+      - name: Browser tests
+        env:
+          SLIDETWIN_REQUIRE_E2E: "1"
+        run: pytest -q tests/e2e

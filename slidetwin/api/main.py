@@ -6,11 +6,15 @@ importing this module has no side effects.
 
 from __future__ import annotations
 
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from slidetwin import __version__
 from slidetwin.api.errors import BodySizeLimit, install_error_handlers
@@ -27,6 +31,10 @@ DESCRIPTION = """Agent-operable digital pathology viewer simulator.
 Humans and agents use the same session actions. Every pixel comes from a logged action (view,
 thumbnail or crop); coordinates are micrometres from the level-0 top-left corner; time is a virtual
 clock in seconds."""
+
+# The reading UI (M3): static files that call only the /api routes below.
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+mimetypes.add_type("text/javascript", ".js")  # module scripts need a JavaScript MIME type
 
 
 def build_manager(settings: Settings) -> SessionManager:
@@ -67,6 +75,12 @@ def create_app(
         return {"status": "ok", "version": __version__, "git_sha": git_sha()}
 
     app.include_router(router)
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> FileResponse:
+        return FileResponse(WEB_DIR / "index.html", headers={"cache-control": "no-cache"})
+
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app
 
 

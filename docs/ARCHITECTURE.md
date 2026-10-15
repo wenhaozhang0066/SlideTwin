@@ -1,6 +1,6 @@
 # Architecture and core contract
 
-This is the binding contract for `slidetwin.core` (M1) and the REST layer (M2). If code and this document
+This is the binding contract for `slidetwin.core` (M1), the REST layer (M2) and the web UI (M3). If code and this document
 disagree, one of them is a bug. SPEC sections are cited as "SPEC n".
 
 ## Layers
@@ -227,6 +227,32 @@ schema alone is at `GET /api/report_schema`. The route table and status codes ar
 Sessions end after 2 h without an action or 8 h in total. Reading the state, the images or the
 trajectory is not activity. When a session ends its images are deleted; its trajectory stays
 downloadable.
+
+## Web UI (M3)
+
+`slidetwin/web/` holds the reading UI: plain ES modules and Canvas, no framework and no build step.
+FastAPI serves `index.html` at `/` and the files at `/static/`.
+
+- **Modules.**
+  - `api.js`: the only module that calls `fetch`, and only `/api/` routes. A test checks every web file
+    for this and for external URLs.
+  - `geometry.js`: pure display arithmetic (scales, conversions, scale bar, key maps).
+  - `report.js`: builds the report object.
+  - `i18n.js`: English and Chinese strings.
+  - `app.js`: DOM and state.
+- **One UI step, one session action.** Each move, measurement, annotation or report is a single POST
+  with `include_image=false`. The page then loads the JPEG from the returned image URL, so it shows no
+  pixels that the session did not serve and log. There is no client-side zoom or tile fetching.
+- **Display.** The canvas backing store is the view in view pixels. The CSS size is
+  `view px * min(1 / devicePixelRatio, fit)`: one device pixel per view pixel when the window is large
+  enough, smaller otherwise, never enlarged.
+- **Client metadata.** Each action carries
+  `client = {ui: "web", input, display_scale, device_pixel_ratio}`:
+  - `display_scale` is device pixels per view pixel;
+  - `input` is `auto` (the thumbnail fetched at the start), `key`, `click` (on the view), `drag`,
+    `minimap`, `minimap-key` or `button`.
+- **Content Security Policy** (meta tag): same origin only, no inline or evaluated script, and no
+  third-party requests from a reader's browser.
 
 ## Ground truth isolation
 
