@@ -164,6 +164,10 @@ class CoverageRules(Reviewed):
     negative_min_fraction: float = Field(ge=0, le=1)
     at_or_above_mag: PositiveFinite
     grid_um: PositiveFinite
+    # Tissue detection on the coverage grid: saturation (0-255) above this counts as tissue, and
+    # connected pieces smaller than the area below are ignored (dust, debris).
+    tissue_min_saturation: int = Field(12, ge=0, le=255)
+    tissue_min_area_um2: float = Field(10000.0, ge=0, allow_inf_nan=False)
 
 
 class CategoryRule(Reviewed):

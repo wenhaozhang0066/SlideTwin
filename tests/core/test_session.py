@@ -409,8 +409,8 @@ def test_submit_report_closes_the_session(make_session: SessionFactory) -> None:
     d = receipt.to_dict()
     assert d["accepted"] is True
     assert d["views_used"] == ["v_0001", "v_0002"]
-    assert d["rule_checks"] == []
-    assert d["coverage"] is None
+    assert [c["rule"] for c in d["rule_checks"]][:1] == ["E1"]
+    assert d["coverage"]["fraction"] == 1.0  # the line slide has no tissue: vacuously covered
     assert s.closed
     for call in (lambda: s.pan(0.1, 0), lambda: s.view(), lambda: s.submit_report(EXAMPLE)):
         with pytest.raises(SessionClosed):

@@ -111,6 +111,12 @@ class ViewOut(BaseModel):
     image: ImageRef
 
 
+class TissuePiece(BaseModel):
+    piece: int = Field(description="1 is the largest piece; cite it as tissue_piece:N.")
+    bbox_um: list[float]
+    area_mm2: float
+
+
 class ThumbnailOut(BaseModel):
     type: Literal["thumbnail"]
     thumb_id: str
@@ -119,6 +125,7 @@ class ThumbnailOut(BaseModel):
     um_per_px: list[float]
     pixel_sha256: str
     jpeg_sha256: str
+    tissue_pieces: list[TissuePiece]
     image: ImageRef
 
 
@@ -147,15 +154,24 @@ class AnnotationOut(BaseModel):
     note: str
 
 
+class RuleCheckOut(BaseModel):
+    rule: str = Field(description="E1-E4 (SPEC 5.4).")
+    status: Literal["pass", "fail", "not_applicable", "not_verifiable"]
+    message: str
+    claim_id: str | None = None
+
+
 class ReportReceiptOut(BaseModel):
     type: Literal["report_receipt"]
     seq: int
     accepted: bool
     enforcement: str
     views_used: list[str]
-    rule_checks: list[dict[str, Any]]
-    coverage: dict[str, Any] | None
-    note: str
+    rule_checks: list[RuleCheckOut]
+    violations: int = Field(description="Number of failed checks (advisory mode).")
+    coverage: dict[str, Any] = Field(
+        description="Tissue seen at or above the protocol magnification, whole slide and per piece."
+    )
 
 
 Observation = Annotated[
@@ -237,6 +253,9 @@ class ErrorBody(BaseModel):
     seq: int | None = Field(None, description="Log position of a failed session action.")
     cost_s: float | None = Field(None, description="Always 0 for a failed action.")
     elapsed_s: float | None = Field(None, description="Virtual time used so far.")
+    violations: list[dict[str, Any]] | None = Field(
+        None, description="Failed rule checks of a report refused under an enforced protocol."
+    )
     details: list[dict[str, Any]] | None = None
 
 

@@ -77,6 +77,8 @@ coverage:        # negative coverage requirement; the numbers are placeholders
   negative_min_fraction: 0.98
   at_or_above_mag: 10
   grid_um: 32
+  tissue_min_saturation: 12     # tissue = median-filtered saturation above 12 on 0-255 (glass: 3-7)
+  tissue_min_area_um2: 10000    # ignore pieces smaller than 0.01 mm2 (dust)
 
 categories:      # each category is confirmed on its own
   - id: macro

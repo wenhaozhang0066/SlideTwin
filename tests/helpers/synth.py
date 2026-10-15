@@ -75,3 +75,32 @@ def dark_centroid(values: np.ndarray) -> float:
     w = 255.0 - values.astype(np.float64)
     w[w < 8] = 0.0  # ignore ringing and quantisation noise
     return float((np.arange(len(w)) * w).sum() / w.sum())
+
+
+PINK, PURPLE = (232, 140, 190), (120, 60, 160)
+
+
+def tissue_image(
+    width: int, height: int, rects: Sequence[tuple[int, int, int, int, tuple[int, int, int]]]
+) -> RGB:
+    """White glass with coloured rectangles (x, y, w, h, rgb) standing in for H&E tissue."""
+    img = np.full((height, width, 3), 255, dtype=np.uint8)
+    for x, y, w, h, rgb in rects:
+        img[y : y + h, x : x + w] = rgb
+    return img
+
+
+def tissue_source(
+    width: int = 2048,
+    height: int = 1536,
+    mpp: float = 1.0,
+    rects: Sequence[tuple[int, int, int, int, tuple[int, int, int]]] = (
+        (100, 100, 800, 600, PINK),  # piece 1: 0.48 mm2 at 1 um/px
+        (1200, 900, 400, 400, PURPLE),  # piece 2: 0.16 mm2
+    ),
+    n_levels: int = 4,
+    name: str = "tissue",
+) -> ArraySlideSource:
+    return ArraySlideSource(
+        pyramid(tissue_image(width, height, rects), n_levels), (mpp, mpp), name=name
+    )

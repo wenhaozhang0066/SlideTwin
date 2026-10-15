@@ -22,12 +22,15 @@ step with the YAML.
 | `task_rules.T1-ITC-REPORT` | Report ITC separately only when there is no macro- or micrometastasis. |
 | `magnification` | Screening at >= 10x; positive evidence at >= 20x. |
 | `measurement` | Largest contiguous deposit only; satellites excluded; extranodal extension included; >= 20 px across. |
-| `coverage` | >= 98% of tissue seen at >= 10x on a 32 um grid (placeholder numbers). |
+| `coverage` | >= 98% of tissue seen at >= 10x on a 32 um grid (placeholder numbers); tissue = median-filtered saturation > 12, pieces >= 0.01 mm2 (misses very pale fat on Radboud slides). |
 | `categories.macro` | Macrometastasis: > 2 mm. |
 | `categories.micro` | Micrometastasis: > 0.2 mm to 2 mm and/or > 200 cells. Which edition's 200-cell wording applies is open. |
 | `categories.itc` | Isolated tumour cells: <= 0.2 mm and <= 200 cells (same open wording question). |
 | `reading_path_hints` | The four SPEC 5.2 hints (never enforced). |
 | `reporting` | Fields: metastasis, category, largest deposit (mm), extranodal extension. |
+
+How the rule checks read these values (see M5 below) also needs review: the E3 size and category
+logic, `absent` paired with category `none`, and the E4 scopes.
 
 Profile values (`configs/profiles/*.yaml`, profile-level `status: draft`):
 
@@ -374,3 +377,45 @@ Refuted, with the reason they were left unchanged:
   - 2560 x 1440: one cleared system.
 - **For M3.** The UI shows the view at 1:1 device pixels (aware of devicePixelRatio) and logs the display
   scale of each human session.
+
+## M5: rules and coverage (2026-10-15)
+
+- **Coverage grid.** Square cells of `coverage.grid_um` (32 um) from the level-0 top-left corner.
+  - A cell counts as seen when its centre lies inside a view of at least `coverage.at_or_above_mag`.
+    Crops count at their equivalent magnification.
+  - Coverage is seen tissue cells over tissue cells in scope. A scope without tissue counts as
+    covered (1.0).
+- **Tissue mask.** Built from the slide pixels at grid scale, never from annotations:
+  - median-filtered (3x3) HSV saturation above `coverage.tissue_min_saturation` (12 on 0-255);
+  - then closing (2 cells), hole filling, and pieces under `coverage.tissue_min_area_um2` (0.01 mm2)
+    dropped.
+- **Why not Otsu (the SPEC 13 example).** Measured on the demo slides:
+  - glass saturation is 3-7, while Otsu picked thresholds of 40-78, so only dense nodal tissue
+    counted and the pale perinodal fat and stroma were left out;
+  - an optical-density criterion caught more pale tissue but also the scanner frame on the Radboud
+    slide, which would make 98% coverage unreachable.
+  - Known limitation: the very pale fat around nodes on Radboud (3DHistech) slides is still missed.
+    The parameters live in the protocol YAML (needs pathologist review).
+- **Tissue pieces.** 8-connected components, numbered by descending area (piece 1 is the largest).
+  `get_thumbnail` returns them (id, bbox, area) and logs them with the thumbnail, so a negative claim
+  can cite `tissue_piece:N`. They are derived from the slide at grid scale, never from ground truth.
+- **Rule checks (SPEC 5.4).** Statuses are `pass`, `fail`, `not_applicable` and `not_verifiable`.
+  - E1: every cited view or measurement id belongs to the session.
+  - E2: each finding has an evidence view at `magnification.confirm_min` or higher.
+  - E3: each measurement spans at least `measurement.min_pixels_across` view pixels, and the category
+    agrees with the size.
+    - The size is the largest cited measurement, otherwise the reported `largest_deposit_mm`.
+    - Category limits are read from the YAML: `gt_mm` and `le_mm` are checked. `or_cells_gt` makes a
+      size mismatch `not_verifiable`, because cell counts cannot be measured here; `cells_le` is not
+      checked.
+    - `absent` must come with category `none`, and `present` with another category.
+  - E4: `metastasis: absent` and every negative claim need `coverage.negative_min_fraction`.
+    Scopes: the whole slide, `tissue_piece:N` or `region:x0,y0,x1,y1` (um).
+  - These interpretations need pathologist review.
+- **Enforcement.**
+  - `advisory`: the report is accepted. The receipt lists every check, the number of violations and the
+    coverage (whole slide and per piece), and the event's `rule_violations` lists the failures.
+  - `enforced`: the report is refused with `RULE_VIOLATION` (422), which carries the failed checks; the
+    session stays open, so the reader can look further and submit again.
+- **Tissue map caching.** Cached per open slide source, which holds one entry per slide in the
+  registry, and dropped with it.

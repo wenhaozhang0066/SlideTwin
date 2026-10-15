@@ -34,7 +34,8 @@ It supports three kinds of experiments:
 | M0 | Scaffold, tooling, CI, health endpoint | done |
 | M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | done |
 | M2 | REST API for every action in SPEC section 7 | done |
-| M3-M7 | Web UI, MCP and baseline agents, rule checks, evaluation, deployment | later |
+| M5 | Rule checks E1-E4, tissue coverage, enforced and advisory protocols | done |
+| M3, M4, M6, M7 | Web UI, MCP and baseline agents, evaluation, deployment | in progress |
 
 ## Quick start
 

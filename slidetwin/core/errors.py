@@ -107,3 +107,20 @@ class InternalError(SlideTwinError):
     """An unexpected failure. The action was not applied; the failure is logged when possible."""
 
     code = "INTERNAL"
+
+
+class RuleViolation(SlideTwinError):
+    """An enforced protocol refused a report; `violations` lists the failed checks."""
+
+    code = "RULE_VIOLATION"
+
+    def __init__(
+        self, message: str, *, violations: list[dict[str, Any]], hint: str | None = None
+    ) -> None:
+        super().__init__(message, hint=hint)
+        self.violations = violations
+
+    def to_dict(self) -> dict[str, Any]:
+        out = super().to_dict()
+        out["violations"] = self.violations
+        return out

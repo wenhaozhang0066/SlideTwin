@@ -202,6 +202,19 @@ text a reader types can split or corrupt a line. A line that cannot be written c
   - It requires the same slide sha256 and the same profile and protocol hashes, and turns any
     structural damage in the log into `REPLAY_ERROR`.
 
+## Rules and coverage (M5)
+
+- **`core/coverage.py`.**
+  - Builds the tissue mask and pieces on the coverage grid from the slide's own pixels.
+  - Marks cells seen by views at or above the protocol magnification, using the cell centre.
+  - Reports coverage for the whole slide, a piece or a region.
+- **`core/rules.py`.** Runs E1-E4 on the validated report with facts from the session (views,
+  measurements, tissue). It only interprets thresholds taken from the protocol.
+- **`submit_report`.** The receipt holds `rule_checks`, `violations` and `coverage`.
+  - Under an enforced protocol, failures refuse the report with `RULE_VIOLATION`.
+  - Failed checks always go to the event's `rule_violations`.
+- **`get_thumbnail`.** Its observation lists the tissue pieces.
+
 ## REST layer (M2)
 
 `slidetwin/api` is a thin adapter: request models (`schemas.py`), one route per action (`routes.py`),

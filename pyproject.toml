@@ -25,6 +25,7 @@ dependencies = [
   "numpy>=1.26",
   "pillow>=10.4",
   "pyyaml>=6.0",
+  "scipy>=1.11",
   "tiffslide>=3.0",
 ]
 
@@ -66,7 +67,7 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["tiffslide.*", "openslide.*", "tifffile.*"]
+module = ["tiffslide.*", "openslide.*", "tifffile.*", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

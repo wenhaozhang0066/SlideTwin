@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from slidetwin.core.config import Profile, Protocol, content_hash
+from slidetwin.core.coverage import TissueMap, tissue_map
 from slidetwin.core.errors import (
     ActionNotAllowed,
     ImageNotFound,
@@ -37,6 +38,7 @@ from slidetwin.core.errors import (
     MagnificationUnavailable,
     NoCurrentView,
     OutsideView,
+    RuleViolation,
     SessionClosed,
     SlideMetadataError,
     SlideTwinError,
@@ -62,6 +64,7 @@ from slidetwin.core.images import ImageStore, encode_jpeg, is_image_id, pixel_sh
 from slidetwin.core.ledger import Ledger, to_s
 from slidetwin.core.render import render_region
 from slidetwin.core.report import validate_report
+from slidetwin.core.rules import MeasurementFact, ViewFact, check_report
 from slidetwin.core.slide_source import RGB, SlideSource, native_mpp, slide_size_um
 from slidetwin.core.trajectory import SCHEMA_VERSION, TrajectoryWriter
 from slidetwin.version import app_version
@@ -115,6 +118,7 @@ class ThumbnailRecord:
     um_per_px: Point
     pixel_sha256: str
     jpeg_sha256: str
+    tissue_pieces: tuple[dict[str, Any], ...] = ()  # pieces a negative claim can cite
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +129,7 @@ class ThumbnailRecord:
             "um_per_px": list(self.um_per_px),
             "pixel_sha256": self.pixel_sha256,
             "jpeg_sha256": self.jpeg_sha256,
+            "tissue_pieces": list(self.tissue_pieces),
         }
 
 
@@ -186,7 +191,8 @@ class ReportReceipt:
     accepted: bool
     enforcement: str
     views_used: tuple[str, ...]
-    note: str
+    rule_checks: tuple[dict[str, Any], ...]
+    coverage: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -195,9 +201,9 @@ class ReportReceipt:
             "accepted": self.accepted,
             "enforcement": self.enforcement,
             "views_used": list(self.views_used),
-            "rule_checks": [],
-            "coverage": None,
-            "note": self.note,
+            "rule_checks": list(self.rule_checks),
+            "violations": sum(1 for c in self.rule_checks if c["status"] == "fail"),
+            "coverage": self.coverage,
         }
 
 
@@ -210,6 +216,7 @@ class _Plan:
     cost_us: int
     params: dict[str, Any]  # canonical JSON form of the input the action used
     apply: Apply  # commits the state change; receives the event seq
+    rule_violations: tuple[dict[str, Any], ...] = ()
 
 
 def _nothing(seq: int) -> tuple[Observation | None, bytes | None]:
@@ -226,6 +233,7 @@ class ActionResult:
     observation: Observation | None = None
     image: bytes | None = None  # JPEG of a served view, crop or thumbnail
     text: str | None = None  # export_trajectory only
+    rule_violations: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -235,7 +243,7 @@ class ActionResult:
             "elapsed_s": self.elapsed_s,
             "state": self.state,
             "observation": None if self.observation is None else self.observation.to_dict(),
-            "rule_violations": [],
+            "rule_violations": list(self.rule_violations),
         }
 
 
@@ -563,11 +571,12 @@ class Session:
             um_per_px = (self._slide_um[0] / size[0], self._slide_um[1] / size[1])
             jpeg = self._encode(arr)
             pixels, jpeg_hash = pixel_sha256(arr), sha256_bytes(jpeg)
+            pieces = tuple(piece.to_dict() for piece in self._tissue().pieces)
 
             def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 tid = self._next_id("t")
                 self._images.put(tid, jpeg)
-                rec = ThumbnailRecord(tid, seq, size, um_per_px, pixels, jpeg_hash)
+                rec = ThumbnailRecord(tid, seq, size, um_per_px, pixels, jpeg_hash, pieces)
                 self._thumbs[tid] = rec
                 return rec, jpeg
 
@@ -659,6 +668,26 @@ class Session:
     def submit_report(self, report: Any, *, client: Any = None) -> ActionResult:
         def op() -> _Plan:
             validated = validate_report(report, expected_task=self.protocol.id)
+            outcome = check_report(
+                validated,
+                protocol=self.protocol,
+                views={k: ViewFact(k, v.mag, v.bbox_um) for k, v in self._views.items()},
+                measurements={
+                    k: MeasurementFact(k, m.length_um, m.length_px)
+                    for k, m in self._measurements.items()
+                },
+                tissue=self._tissue(),
+            )
+            failures = tuple(c.to_dict() for c in outcome.failures)
+            if failures and self.protocol.enforcement == "enforced":
+                listed = "; ".join(f"{c['rule']}: {c['message']}" for c in failures[:5])
+                raise RuleViolation(
+                    f"The report was refused because it breaks {len(failures)} protocol "
+                    f"rule(s). {listed}",
+                    violations=list(failures),
+                    hint="Fix the listed problems, for example look at more tissue, and submit "
+                    "the report again.",
+                )
 
             def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 self._closed = True
@@ -667,11 +696,13 @@ class Session:
                     accepted=True,
                     enforcement=self.protocol.enforcement,
                     views_used=tuple(self._views),
-                    note="Rule checks E1-E4 and the coverage summary are added in M5.",
+                    rule_checks=tuple(c.to_dict() for c in outcome.checks),
+                    coverage=outcome.coverage,
                 )
                 return receipt, None
 
-            return _Plan(0, {"report": validated.model_dump(mode="json")}, apply)
+            params = {"report": validated.model_dump(mode="json")}
+            return _Plan(0, params, apply, rule_violations=failures)
 
         return self._execute("submit_report", {"report": report}, client, op)
 
@@ -723,7 +754,15 @@ class Session:
                 observation, image = plan.apply(seq)
                 self._writer.write(
                     self._event(
-                        seq, action, plan.params, t_wall, plan.cost_us, observation, None, meta
+                        seq,
+                        action,
+                        plan.params,
+                        t_wall,
+                        plan.cost_us,
+                        observation,
+                        None,
+                        meta,
+                        plan.rule_violations,
                     )
                 )
             except Exception as err:
@@ -740,6 +779,7 @@ class Session:
                 state=self._state(),
                 observation=observation,
                 image=image,
+                rule_violations=plan.rule_violations,
             )
 
     def _record_failure(
@@ -754,8 +794,9 @@ class Session:
         """Log a failed action at zero cost and tell the caller where it sits in the log. If even
         that cannot be written, stop the session: it could no longer keep its log complete."""
         try:
+            violations = tuple(getattr(err, "violations", ()))
             self._writer.write(
-                self._event(seq, action, params, t_wall, 0, None, err.to_dict(), meta)
+                self._event(seq, action, params, t_wall, 0, None, err.to_dict(), meta, violations)
             )
         except Exception:
             self._broken = True
@@ -811,6 +852,7 @@ class Session:
         observation: Observation | None,
         error: dict[str, Any] | None,
         client: dict[str, Any] | None,
+        rule_violations: tuple[dict[str, Any], ...] = (),
     ) -> dict[str, Any]:
         mpp = self._mpp(self._mag)
         return {
@@ -828,7 +870,7 @@ class Session:
             },
             "view_id": observation.view_id if isinstance(observation, ViewRecord) else None,
             "observation": None if observation is None else observation.to_dict(),
-            "rule_violations": [],
+            "rule_violations": list(rule_violations),
             "error": error,
             "client": client,
         }
@@ -881,6 +923,10 @@ class Session:
             "closed": self._closed,
             "budget_remaining": self._ledger.remaining(),
         }
+
+    def _tissue(self) -> TissueMap:
+        """Tissue mask and pieces of this slide on the protocol's coverage grid (shared, cached)."""
+        return tissue_map(self._source, self.protocol.coverage)
 
     def _mpp(self, mag: float) -> float:
         return mpp_for_mag(mag, self.profile.mpp_ref_40x)
