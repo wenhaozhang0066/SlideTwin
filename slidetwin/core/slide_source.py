@@ -1,0 +1,232 @@
+"""Slide readers.
+
+Only the image pyramid is exposed. Associated images (label, macro, embedded thumbnail) can carry
+patient information and are never read. Reads use level coordinates and must lie inside the level.
+"""
+
+from __future__ import annotations
+
+import importlib.metadata
+import math
+import threading
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
+import numpy as np
+from numpy.typing import NDArray
+
+from slidetwin.core.errors import InvalidParameter, SlideMetadataError, SlideNotFound
+from slidetwin.core.geometry import Point, Size, level_mpps
+
+RGB = NDArray[np.uint8]
+
+BACKENDS = ("tiffslide", "openslide")
+
+
+@runtime_checkable
+class SlideSource(Protocol):
+    """Read access to one slide's pyramid."""
+
+    @property
+    def dimensions(self) -> Size: ...
+
+    @property
+    def mpp(self) -> Point: ...
+
+    @property
+    def level_dimensions(self) -> tuple[Size, ...]: ...
+
+    @property
+    def backend(self) -> str: ...
+
+    def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
+        """RGB uint8 array of shape (h, w, 3) at level coordinates; must lie inside the level."""
+        ...
+
+    def close(self) -> None: ...
+
+
+def slide_size_um(source: SlideSource) -> tuple[float, float]:
+    w, h = source.dimensions
+    mx, my = source.mpp
+    return (w * mx, h * my)
+
+
+def source_level_mpps(source: SlideSource) -> tuple[Point, ...]:
+    return level_mpps(source.dimensions, source.level_dimensions, source.mpp)
+
+
+def native_mpp(source: SlideSource) -> float:
+    """The coarser axis: a magnification is offered only if both axes support it."""
+    return max(source.mpp)
+
+
+def resolve_mpp(raw_x: Any, raw_y: Any, override: Point | None, name: str) -> Point:
+    """Validated (mpp_x, mpp_y). Uses the manifest override if given; never guesses."""
+    if override is not None:
+        values: tuple[Any, Any] = override
+        origin = "mpp_override"
+    else:
+        values = (raw_x, raw_y)
+        origin = "slide metadata"
+    try:
+        mx, my = float(values[0]), float(values[1])
+    except (TypeError, ValueError):
+        mx = my = math.nan
+    if not (math.isfinite(mx) and math.isfinite(my) and mx > 0 and my > 0):
+        raise SlideMetadataError(
+            f"Slide '{name}' has no usable resolution (mpp) in its {origin}; refusing to guess.",
+            hint="If the scanner resolution is known from another source, set mpp_override "
+            "{x, y, source} for this slide in configs/slides/manifest.yaml.",
+        )
+    return (mx, my)
+
+
+def to_rgb(arr: NDArray[Any]) -> RGB:
+    """Convert a decoded tile array to RGB uint8; RGBA is composited over white."""
+    if arr.dtype != np.uint8:
+        raise SlideMetadataError(f"Unsupported pixel type {arr.dtype}; expected 8-bit samples.")
+    if arr.ndim == 2:
+        return np.repeat(arr[:, :, None], 3, axis=2)
+    if arr.ndim == 3 and arr.shape[2] == 3:
+        return np.ascontiguousarray(arr)
+    if arr.ndim == 3 and arr.shape[2] == 4:
+        rgb = arr[:, :, :3].astype(np.uint32)
+        alpha = arr[:, :, 3:4].astype(np.uint32)
+        out = (rgb * alpha + 255 * (255 - alpha) + 127) // 255
+        return out.astype(np.uint8)
+    raise SlideMetadataError(f"Unsupported pixel layout {arr.shape}; expected gray, RGB or RGBA.")
+
+
+class _BaseSource:
+    def __init__(
+        self, level_dimensions: Sequence[Size], mpp: Point, backend: str, name: str
+    ) -> None:
+        dims = tuple((int(w), int(h)) for w, h in level_dimensions)
+        if not dims or any(w <= 0 or h <= 0 for w, h in dims):
+            raise SlideMetadataError(f"Slide '{name}' has an empty or invalid pyramid.")
+        self._dims = dims
+        self._mpp = mpp
+        self._backend = backend
+        self._name = name
+        self._lock = threading.Lock()
+
+    @property
+    def dimensions(self) -> Size:
+        return self._dims[0]
+
+    @property
+    def mpp(self) -> Point:
+        return self._mpp
+
+    @property
+    def level_dimensions(self) -> tuple[Size, ...]:
+        return self._dims
+
+    @property
+    def backend(self) -> str:
+        return self._backend
+
+    def _check(self, level: int, x: int, y: int, w: int, h: int) -> None:
+        if not 0 <= level < len(self._dims):
+            raise InvalidParameter(f"Level {level} does not exist (0..{len(self._dims) - 1}).")
+        lw, lh = self._dims[level]
+        if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > lw or y + h > lh:
+            raise InvalidParameter(
+                f"Read ({x}, {y}, {w}x{h}) falls outside level {level} ({lw}x{lh} px)."
+            )
+
+
+class ArraySlideSource(_BaseSource):
+    """In-memory pyramid for tests and synthetic slides."""
+
+    def __init__(self, levels: Sequence[RGB], mpp: Point, *, name: str = "array") -> None:
+        for lvl in levels:
+            if lvl.dtype != np.uint8 or lvl.ndim != 3 or lvl.shape[2] != 3:
+                raise SlideMetadataError("Array levels must be uint8 arrays of shape (h, w, 3).")
+        self._levels = [np.ascontiguousarray(lvl) for lvl in levels]
+        super().__init__(
+            [(lvl.shape[1], lvl.shape[0]) for lvl in self._levels],
+            resolve_mpp(mpp[0], mpp[1], None, name),
+            "array",
+            name,
+        )
+
+    def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
+        self._check(level, x, y, w, h)
+        return self._levels[level][y : y + h, x : x + w].copy()
+
+    def close(self) -> None:
+        self._levels = []
+
+
+class TiffSlideSource(_BaseSource):
+    """Default reader (pure Python, via tiffslide)."""
+
+    def __init__(self, path: Path, *, mpp_override: Point | None = None) -> None:
+        import tiffslide
+
+        self._slide = tiffslide.TiffSlide(str(path))
+        props = self._slide.properties
+        mpp = resolve_mpp(
+            props.get("tiffslide.mpp-x"), props.get("tiffslide.mpp-y"), mpp_override, path.name
+        )
+        group: Any = self._slide.zarr_group
+        self._arrays: list[Any] = [group[str(i)] for i in range(self._slide.level_count)]
+        backend = f"tiffslide {importlib.metadata.version('tiffslide')}"
+        super().__init__(self._slide.level_dimensions, mpp, backend, path.name)
+
+    def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
+        self._check(level, x, y, w, h)
+        with self._lock:
+            arr = np.asarray(self._arrays[level][y : y + h, x : x + w])
+        return to_rgb(arr)
+
+    def close(self) -> None:
+        self._slide.close()
+
+
+class OpenSlideSource(_BaseSource):
+    """Optional reader (OpenSlide C library via openslide-bin)."""
+
+    def __init__(self, path: Path, *, mpp_override: Point | None = None) -> None:
+        import openslide
+
+        self._slide = openslide.OpenSlide(str(path))
+        props = self._slide.properties
+        mpp = resolve_mpp(
+            props.get(openslide.PROPERTY_NAME_MPP_X),
+            props.get(openslide.PROPERTY_NAME_MPP_Y),
+            mpp_override,
+            path.name,
+        )
+        version = getattr(openslide, "__library_version__", "unknown")
+        super().__init__(self._slide.level_dimensions, mpp, f"openslide {version}", path.name)
+
+    def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
+        self._check(level, x, y, w, h)
+        ds = self._slide.level_downsamples[level]
+        with self._lock:
+            img = self._slide.read_region((round(x * ds), round(y * ds)), level, (w, h))
+        return to_rgb(np.asarray(img))
+
+    def close(self) -> None:
+        self._slide.close()
+
+
+def open_slide(
+    path: Path, *, backend: str = "tiffslide", mpp_override: Point | None = None, name: str = ""
+) -> SlideSource:
+    """Open a slide file; refuses files without a usable mpp unless overridden."""
+    label = name or path.name
+    if not path.is_file():
+        raise SlideNotFound(
+            f"Slide file for '{label}' was not found.",
+            hint="Check SLIDETWIN_SLIDE_DIR and the path in configs/slides/manifest.yaml.",
+        )
+    if backend == "tiffslide":
+        return TiffSlideSource(path, mpp_override=mpp_override)
+    if backend == "openslide":
+        return OpenSlideSource(path, mpp_override=mpp_override)
+    raise InvalidParameter(f"Unknown slide backend '{backend}'. Use one of {', '.join(BACKENDS)}.")

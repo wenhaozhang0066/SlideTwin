@@ -56,11 +56,14 @@ extend-exclude = ["data", "cache", "logs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "N"]
+# Error classes are named after the condition (e.g. SlideNotFound), not suffixed with "Error".
+ignore = ["N818"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
+plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = ["tiffslide.*", "openslide.*", "tifffile.*"]

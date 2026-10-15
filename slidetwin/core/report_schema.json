@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_.-]{1,32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "finding",
+            "measurement",
+            "negative"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "measurement_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measurement Id"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "text"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "Conclusion": {
+      "additionalProperties": false,
+      "properties": {
+        "metastasis": {
+          "enum": [
+            "present",
+            "absent",
+            "indeterminate"
+          ],
+          "title": "Metastasis",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "macro",
+            "micro",
+            "itc",
+            "none"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "largest_deposit_mm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Largest Deposit Mm"
+        },
+        "extranodal_extension": {
+          "enum": [
+            "present",
+            "absent",
+            "not_assessable"
+          ],
+          "title": "Extranodal Extension",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metastasis",
+        "category",
+        "extranodal_extension"
+      ],
+      "title": "Conclusion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "task": {
+      "title": "Task",
+      "type": "string"
+    },
+    "conclusion": {
+      "$ref": "#/$defs/Conclusion"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "maxItems": 200,
+      "title": "Claims",
+      "type": "array"
+    },
+    "free_text": {
+      "default": "",
+      "maxLength": 20000,
+      "title": "Free Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task",
+    "conclusion"
+  ],
+  "title": "SlideTwin report",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

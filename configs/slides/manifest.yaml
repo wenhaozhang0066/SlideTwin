@@ -1,0 +1,50 @@
+# Slide manifest. Paths are relative to SLIDETWIN_SLIDE_DIR (default ./data/slides); no internal
+# paths belong here. `eval_only` blocks are for evaluation scripts: the core loader deletes them, so
+# they are never reachable through a session action, an API response or a log.
+# Sources and licenses: docs/DATA_LICENSES.md.
+schema_version: 1
+slides:
+  - id: cmu1_small
+    path: openslide-testdata/CMU-1-Small-Region.svs
+    source_url: https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs
+    sha256: ed92d5a9f2e86df67640d6f92ce3e231419ce127131697fbbce42ad5e002c8a7
+    license: CC0-1.0
+    attribution: OpenSlide test data, Carnegie Mellon University
+
+  # CAMELYON16 demo slides (training set). License: stricter reading until confirmed (see
+  # DATA_LICENSES.md): non-commercial research demo, credit the source, no image modification.
+  - id: c16_tumor_082
+    path: camelyon16/tumor_082.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_082.tif
+    sha256: fa751c664cb942accc506a3ff60299ed99a9777a40d168a17d010e2eaef2404e
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: tumor, category: macro, annotation: CAMELYON16/annotations/tumor_082.xml}
+  - id: c16_tumor_093
+    path: camelyon16/tumor_093.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_093.tif
+    sha256: aba3ae5a6739e0fb20de5b870ae160a7b32f523c6ffd7b3eafbda3a56cabc041
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: tumor, category: micro, annotation: CAMELYON16/annotations/tumor_093.xml}
+  - id: c16_tumor_081
+    path: camelyon16/tumor_081.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_081.tif
+    sha256: 2abf4fbe78c4f93276aa996d74967c2a93fbbbd9e8eb0c2418701cafed26778c
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: tumor, category: micro, annotation: CAMELYON16/annotations/tumor_081.xml}
+  - id: c16_normal_108
+    path: camelyon16/normal_108.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/normal_108.tif
+    sha256: f606e8ef726a42840a2e0d33d3ffcd1afe9ea52ff98ef0880502958c2a07fe3c
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: normal, category: negative}
+  - id: c16_tumor_058
+    path: camelyon16/tumor_058.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_058.tif
+    sha256: 683d2de301d4c6c2cdb40690776b8b8b1b464a03aa1317c3b20afb3545a5941a
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: tumor, category: macro, annotation: CAMELYON16/annotations/tumor_058.xml}

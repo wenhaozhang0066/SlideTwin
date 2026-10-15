@@ -32,7 +32,7 @@ It supports three kinds of experiments:
 | Milestone | Content | State |
 |---|---|---|
 | M0 | Scaffold, tooling, CI, health endpoint | done |
-| M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | planned |
+| M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | done |
 | M2 | REST API for every action in SPEC section 7 | planned |
 | M3-M7 | Web UI, MCP and baseline agents, rule checks, evaluation, deployment | later |
 

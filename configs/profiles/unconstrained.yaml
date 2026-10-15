@@ -1,0 +1,28 @@
+# Control condition (SPEC 4.2): the loose tools many current agents use.
+# The thumbnail is free, arbitrary rectangles can be cropped, and every other action costs the same
+# regardless of distance. It exists so the same agent can be compared under `viewer` and `unconstrained`.
+id: unconstrained
+description: Free thumbnail, arbitrary crops, flat cost per action (control condition).
+status: draft
+auto_view: true
+viewport_default_px: [1024, 768]
+magnifications: [1.25, 2.5, 5, 10, 20, 40]
+mpp_ref_40x: 0.25
+mag_tolerance: 0.06
+thumbnail:
+  allowed: true
+  long_side_px: 1024
+crop:
+  allowed: true
+image:
+  format: jpeg
+  quality: 90
+  subsampling: "4:4:4"
+  fill_rgb: [255, 255, 255]
+cost_model:
+  kind: flat
+  step_s: 1.0
+  thumbnail_s: 0.0
+budget:
+  max_virtual_s: null
+  max_views: null

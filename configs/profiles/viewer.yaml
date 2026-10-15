@@ -1,0 +1,34 @@
+# Default rules: a digital slide viewer (SPEC 4.1, 8).
+# Every value here is a DRAFT placeholder. Magnification presets need pathologist review, and the
+# cost model must be recalibrated from real pathologist reading logs (M7).
+id: viewer
+description: Digital slide viewer with preset magnifications, a navigation thumbnail and timed actions.
+status: draft
+auto_view: true
+viewport_default_px: [1024, 768]
+magnifications: [1.25, 2.5, 5, 10, 20, 40]
+mpp_ref_40x: 0.25
+mag_tolerance: 0.06
+thumbnail:
+  allowed: true
+  long_side_px: 1024
+crop:
+  allowed: false
+image:
+  format: jpeg
+  quality: 90
+  subsampling: "4:4:4"
+  fill_rgb: [255, 255, 255]
+cost_model:
+  kind: viewer
+  view_render_s: 0.3
+  set_magnification_s: 0.5
+  pan_base_s: 0.2
+  pan_per_viewport_s: 0.15
+  move_to_s: 0.6
+  thumbnail_s: 0.5
+  measure_s: 3.0
+  annotate_s: 4.0
+budget:
+  max_virtual_s: null
+  max_views: null
