@@ -101,6 +101,20 @@ def test_cells_in_uses_cell_centres(rules: CoverageRules) -> None:
     assert rs.start == rs.stop == 0
 
 
+def test_edge_cells_can_be_seen_by_views_clamped_to_the_slide(rules: CoverageRules) -> None:
+    # 1000 x 750 um: the last column of 32 um cells is cut at 1000 um (cells 992-1024), the last
+    # row at 750 um. Tissue reaches both borders.
+    src = tissue_source(1000, 750, rects=((0, 0, 1000, 750, PINK),), name="edge")
+    tmap = build_tissue_map(src, rules)
+    assert tmap.shape == (24, 32)
+    assert tmap.pieces[0].bbox_um.to_list() == [0.0, 0.0, 1000.0, 750.0]
+    clamped = BBox(500.0, 375.0, 1000.0, 750.0)  # a view that ends at the slide corner
+    rs, cs = tmap.cells_in(clamped)
+    assert (rs.stop, cs.stop) == (24, 32)  # the cut cells (centres 996 and 748 um) are inside
+    whole = coverage(tmap, seen_cells(tmap, [BBox(0.0, 0.0, 1000.0, 750.0)]), 10)
+    assert whole.fraction == 1.0
+
+
 def test_tissue_map_is_shared(rules: CoverageRules) -> None:
     src = tissue_source(name="shared")
     a = tissue_map(src, rules)

@@ -43,20 +43,31 @@ class TissueMap:
     mask: NDArray[np.bool_]  # (rows, cols)
     labels: NDArray[np.int32]  # 0 background, k = piece k
     pieces: tuple[Piece, ...]
+    size_um: tuple[float, float] = (math.inf, math.inf)  # slide extent; it cuts the edge cells
 
     @property
     def shape(self) -> tuple[int, int]:
         rows, cols = self.mask.shape
         return int(rows), int(cols)
 
+    def _centres(self, n: int, extent: float) -> NDArray[np.float64]:
+        """Centres of the parts of n cells that lie inside [0, extent]."""
+        lo = np.arange(n, dtype=np.float64) * self.grid_um
+        centres: NDArray[np.float64] = (lo + np.minimum(lo + self.grid_um, extent)) / 2
+        return centres
+
     def cells_in(self, bbox: BBox) -> tuple[slice, slice]:
-        """Cells whose centre lies inside `bbox` (half-open)."""
-        g = self.grid_um
+        """Cells whose centre lies inside `bbox` (half-open).
+
+        A cell cut by the right or bottom slide border is centred on its part inside the slide:
+        views are clamped to the slide, so the full-cell centre of an edge cell could lie outside
+        every possible view.
+        """
         rows, cols = self.shape
-        c0 = max(0, math.ceil(bbox.x0 / g - 0.5))
-        c1 = min(cols, math.ceil(bbox.x1 / g - 0.5))
-        r0 = max(0, math.ceil(bbox.y0 / g - 0.5))
-        r1 = min(rows, math.ceil(bbox.y1 / g - 0.5))
+        xs = self._centres(cols, self.size_um[0])
+        ys = self._centres(rows, self.size_um[1])
+        c0, c1 = (int(np.searchsorted(xs, v, side="left")) for v in (bbox.x0, bbox.x1))
+        r0, r1 = (int(np.searchsorted(ys, v, side="left")) for v in (bbox.y0, bbox.y1))
         return slice(r0, max(r0, r1)), slice(c0, max(c0, c1))
 
 
@@ -126,10 +137,10 @@ def build_tissue_map(source: SlideSource, rules: CoverageRules) -> TissueMap:
     for rank, i in enumerate(order, start=1):
         relabel[i + 1] = rank
         rs, cs = boxes[i]
-        bbox = BBox(cs.start * g, rs.start * g, cs.stop * g, rs.stop * g)
+        bbox = BBox(cs.start * g, rs.start * g, min(cs.stop * g, w_um), min(rs.stop * g, h_um))
         pieces.append(Piece(rank, bbox, round(float(sizes[i]) * g * g / 1e6, 4)))
     labels = relabel[raw].astype(np.int32)
-    return TissueMap(g, mask, labels, tuple(pieces))
+    return TissueMap(g, mask, labels, tuple(pieces), (w_um, h_um))
 
 
 _CACHE: weakref.WeakKeyDictionary[Any, dict[str, TissueMap]] = weakref.WeakKeyDictionary()

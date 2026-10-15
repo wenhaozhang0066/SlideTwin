@@ -23,6 +23,7 @@ from slidetwin.api.settings import Settings
 from slidetwin.core.config import ConfigStore
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
+from slidetwin.mcp_server import build_mcp, transport_security
 from slidetwin.version import git_sha
 
 DESCRIPTION = """Agent-operable digital pathology viewer simulator.
@@ -56,10 +57,23 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     mgr = manager if manager is not None else build_manager(settings)
+    mcp = build_mcp(mgr)
+    # Stateless JSON responses: tools take the session id, so MCP needs no transport session, and
+    # plain JSON passes proxies that buffer event streams.
+    mcp_http = mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        transport_security=transport_security(
+            settings.mcp_allowed_hosts, settings.mcp_allowed_origins
+        ),
+        max_request_body_size=settings.max_body_bytes,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        yield
+        async with mcp.session_manager.run():  # a mounted MCP app's own lifespan never runs
+            yield
         mgr.close_all()
         mgr.registry.close()
 
@@ -75,6 +89,9 @@ def create_app(
         return {"status": "ok", "version": __version__, "git_sha": git_sha()}
 
     app.include_router(router)
+    # The MCP route itself (exactly /mcp), not a mount: a mount would answer /mcp with a redirect
+    # to /mcp/ and send every unknown path to the MCP app instead of our 404 envelope.
+    app.router.routes.extend(mcp_http.routes)
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:

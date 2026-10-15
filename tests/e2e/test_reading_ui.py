@@ -13,15 +13,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-import uvicorn
 import yaml
 
 from slidetwin.api.main import create_app
@@ -29,6 +25,7 @@ from slidetwin.api.settings import Settings
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.replay import replay
 from tests.conftest import CONFIG_DIR, REPO_ROOT
+from tests.helpers.live import serve
 from tests.helpers.synth import PINK, PURPLE, pyramid, tissue_image, write_pyramid_tiff
 
 pytestmark = pytest.mark.e2e
@@ -66,21 +63,8 @@ def server(
         max_sessions=4,
         idle_ttl_s=600.0,
     )
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    config = uvicorn.Config(create_app(settings), host="127.0.0.1", port=port, log_level="warning")
-    srv = uvicorn.Server(config)
-    thread = threading.Thread(target=srv.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 20
-    while not srv.started:
-        if time.monotonic() > deadline or not thread.is_alive():
-            pytest.fail("the test server did not start")
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
-    srv.should_exit = True
-    thread.join(10)
+    with serve(create_app(settings)) as url:
+        yield url
 
 
 @pytest.fixture(scope="module")

@@ -11,6 +11,11 @@ from pathlib import Path
 
 from slidetwin.core.errors import ConfigError
 
+# The MCP endpoint answers only requests addressed to these hosts and origins (DNS rebinding
+# protection, on by default for a local server). "*" turns the check off, e.g. on a public Space.
+LOCAL_HOSTS = ("127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*")
+LOCAL_ORIGINS = tuple(f"http://{h}" for h in LOCAL_HOSTS)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -23,6 +28,8 @@ class Settings:
     idle_ttl_s: float = 7200.0
     max_age_s: float = 28800.0
     max_body_bytes: int = 1_000_000
+    mcp_allowed_hosts: tuple[str, ...] = LOCAL_HOSTS
+    mcp_allowed_origins: tuple[str, ...] = LOCAL_ORIGINS
 
     def __post_init__(self) -> None:
         if not isinstance(self.max_sessions, int) or self.max_sessions < 1:
@@ -56,6 +63,8 @@ class Settings:
         SLIDETWIN_SESSION_TTL_S      7200             idle time before a session ends
         SLIDETWIN_SESSION_MAX_AGE_S  28800            absolute session lifetime
         SLIDETWIN_MAX_BODY_BYTES     1000000          request body limit
+        SLIDETWIN_MCP_ALLOWED_HOSTS  localhost        Host values /mcp accepts (comma list, "*" any)
+        SLIDETWIN_MCP_ALLOWED_ORIGINS  localhost      Origin values /mcp accepts (same format)
         """
         env = os.environ if environ is None else environ
         config_dir = Path(env.get("SLIDETWIN_CONFIG_DIR", "configs"))
@@ -78,6 +87,8 @@ class Settings:
             idle_ttl_s=_number(env, "SLIDETWIN_SESSION_TTL_S", "7200", float),
             max_age_s=_number(env, "SLIDETWIN_SESSION_MAX_AGE_S", "28800", float),
             max_body_bytes=_number(env, "SLIDETWIN_MAX_BODY_BYTES", "1000000", int),
+            mcp_allowed_hosts=_list(env, "SLIDETWIN_MCP_ALLOWED_HOSTS", LOCAL_HOSTS),
+            mcp_allowed_origins=_list(env, "SLIDETWIN_MCP_ALLOWED_ORIGINS", LOCAL_ORIGINS),
         )
 
     def check_log_dir(self) -> None:
@@ -103,3 +114,13 @@ def _number(env: Mapping[str, str], var: str, default: str, kind: type[int] | ty
         raise ConfigError(f"{var} must be a number, got {raw!r}.") from None
     out: int = value  # type: ignore[assignment]
     return out
+
+
+def _list(env: Mapping[str, str], var: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = env.get(var)
+    if raw is None:
+        return default
+    items = tuple(x.strip() for x in raw.split(",") if x.strip())
+    if not items:
+        raise ConfigError(f"{var} must list at least one value, or '*' for any.")
+    return items

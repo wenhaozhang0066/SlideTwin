@@ -23,7 +23,8 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M2 | 覆盖规格书第 7 节全部动作的 REST API | 完成 |
 | M5 | 规则检查 E1–E4、组织覆盖率、advisory 与 enforced 两种模式 | 完成 |
 | M3 | 网页阅片界面（键盘与鼠标均可操作，中英文） | 完成 |
-| M4、M6、M7 | MCP 与基线 agent、评测、部署 | 进行中 |
+| M4 | `/mcp` 上的 MCP 工具；蛇形、随机、裁剪与 LLM agent | 完成 |
+| M6、M7 | 评测与可视化、部署 | 进行中 |
 
 ## 快速开始
 
@@ -37,6 +38,23 @@ uvicorn slidetwin.api.main:app --reload --port 7860
 在浏览器打开 http://localhost:7860/ 即可阅片；界面语言跟随浏览器，可随时切换。
 
 与 CI 相同的全部检查：`bash scripts/ci_local.sh`。
+
+## MCP 与 agent
+
+每个会话动作同时也是 `/mcp`（streamable HTTP）上的一个 MCP 工具。任何支持 MCP 的客户端都可以用它阅片，包括 Claude Code：
+
+```bash
+claude mcp add --transport http slidetwin http://localhost:7860/mcp
+```
+
+其他客户端的接入命令以各自的官方文档为准。部署到公网域名时，把 `SLIDETWIN_MCP_ALLOWED_HOSTS` 设为该域名（默认只接受 localhost）。
+
+基线 agent 在本地运行，通过 REST 或 MCP 连接服务器：
+
+```bash
+python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
+python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install -e ".[llm]" 和 ANTHROPIC_API_KEY
+```
 
 ## 文档
 

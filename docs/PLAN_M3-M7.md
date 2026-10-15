@@ -57,6 +57,8 @@ Done 2026-10-15; what was built and why is in DECISIONS.md ("M3: web UI").
 
 ## M4: MCP and baseline agents (SPEC 12)
 
+Done 2026-10-15; see DECISIONS.md ("M4: MCP and baseline agents").
+
 - **MCP server.** `slidetwin/mcp_server/` uses the official MCP SDK (FastMCP, streamable HTTP) and is
   mounted at `/mcp` in the same app. Its tools map 1:1 to the REST actions and return image content
   with text metadata, calling the same core methods.

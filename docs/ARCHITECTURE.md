@@ -1,6 +1,7 @@
 # Architecture and core contract
 
-This is the binding contract for `slidetwin.core` (M1), the REST layer (M2) and the web UI (M3). If code and this document
+This is the binding contract for `slidetwin.core` (M1), the REST layer (M2), the web UI (M3), and the
+MCP adapter and agent client (M4). If code and this document
 disagree, one of them is a bug. SPEC sections are cited as "SPEC n".
 
 ## Layers
@@ -206,7 +207,9 @@ text a reader types can split or corrupt a line. A line that cannot be written c
 
 - **`core/coverage.py`.**
   - Builds the tissue mask and pieces on the coverage grid from the slide's own pixels.
-  - Marks cells seen by views at or above the protocol magnification, using the cell centre.
+  - Marks cells seen by views at or above the protocol magnification, using the cell centre. A cell
+    cut by the right or bottom slide border is centred on its part inside the slide, because views
+    are clamped to the slide.
   - Reports coverage for the whole slide, a piece or a region.
 - **`core/rules.py`.** Runs E1-E4 on the validated report with facts from the session (views,
   measurements, tissue). It only interprets thresholds taken from the protocol.
@@ -253,6 +256,39 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
     `minimap`, `minimap-key` or `button`.
 - **Content Security Policy** (meta tag): same origin only, no inline or evaluated script, and no
   third-party requests from a reader's browser.
+
+## MCP adapter (M4)
+
+`slidetwin/mcp_server` builds an `MCPServer` (official SDK, v2) over the same `SessionManager`.
+
+- **Tools.** One per action: `create_session`, `get_state`, `get_thumbnail`, `set_magnification`,
+  `pan`, `move_to`, `view`, `measure`, `annotate`, `crop`, `submit_report`, `export_trajectory`,
+  plus the catalogue (`list_slides`, `list_profiles`, `list_protocols`, `get_report_schema`).
+- **Results.** The JSON of the matching REST response (`api/payloads.py`), as text and as
+  structured content. Tools that serve pixels add the JPEG as image content: the same logged image.
+- **Errors.** A refused action returns `isError` with the REST error envelope (code, message, hint,
+  seq). Arguments of the wrong type are rejected by the SDK's schema check before the session sees
+  them; like a REST 422, such calls are not logged.
+- **Transport.** Streamable HTTP, stateless, JSON responses, at exactly `/mcp` (a route next to
+  `/api`, not a mount). The app's lifespan runs the SDK's session manager.
+- **Host check.** `/mcp` answers only the hosts in `SLIDETWIN_MCP_ALLOWED_HOSTS` (default: the
+  localhost forms) and origins in `SLIDETWIN_MCP_ALLOWED_ORIGINS`; `*` turns the check off.
+- Actions through MCP are logged with `client = {"via": "mcp"}`. Otherwise the log is identical to
+  the same actions through REST (a test compares them).
+
+## Agents (M4)
+
+`slidetwin/agents` runs locally and reaches a server only through its public interface.
+
+- **`client.py`.** `Env.rest(url)` or `Env.mcp(url)` gives one interface over both transports;
+  `EnvSession` has one method per action and returns `Step(data, image)`; refusals raise `EnvError`
+  with the envelope's fields.
+- **Baselines.** `serpentine_agent`, `random_agent` and `unconstrained_crop_agent` use only served
+  images and the published tissue pieces (`vision.py` holds their pixel heuristics).
+- **`llm_agent_example`.** A vision LLM drives six tools (thumbnail, magnification, pan, move_to,
+  measure, report) through `execute()`. Backends: the Anthropic SDK, or any OpenAI-compatible
+  endpoint.
+- **CLI.** `python -m slidetwin.agents {serpentine,random,crop,llm} --env URL --slide ID`.
 
 ## Ground truth isolation
 

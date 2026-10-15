@@ -6,11 +6,11 @@ other than a session's own view, crop and thumbnail images, and there is no tile
 
 from __future__ import annotations
 
-import base64
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
 
+from slidetwin.api.payloads import respond
 from slidetwin.api.schemas import (
     ActionResponse,
     AnnotateRequest,
@@ -30,7 +30,6 @@ from slidetwin.api.schemas import (
 )
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.report import export_schema
-from slidetwin.core.session import ActionResult, Session, ThumbnailRecord, ViewRecord
 
 router = APIRouter(prefix="/api")
 
@@ -57,28 +56,6 @@ ACTION_ERRORS = _errors(400, 403, 404, 409, 413)
 READ_ERRORS = _errors(404)
 CREATE_ERRORS = _errors(400, 404, 413, 503)
 JPEG = {200: {"content": {"image/jpeg": {}}, "description": "JPEG image"}, **READ_ERRORS}
-
-
-def image_url(session_id: str, image_id: str) -> str:
-    folder = "thumbnails" if image_id.startswith("t_") else "views"
-    return f"/api/sessions/{session_id}/{folder}/{image_id}.jpg"
-
-
-def respond(session: Session, result: ActionResult, include_image: bool) -> dict[str, Any]:
-    out = result.to_dict()
-    out["session_id"] = session.session_id
-    obs = result.observation
-    if isinstance(obs, ViewRecord | ThumbnailRecord):
-        image_id = obs.view_id if isinstance(obs, ViewRecord) else obs.thumb_id
-        encoded = (
-            base64.b64encode(result.image).decode() if include_image and result.image else None
-        )
-        out["observation"]["image"] = {
-            "url": image_url(session.session_id, image_id),
-            "mime": "image/jpeg",
-            "base64": encoded,
-        }
-    return out
 
 
 def _client(body: Any) -> dict[str, Any] | None:

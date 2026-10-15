@@ -104,3 +104,30 @@ def tissue_source(
     return ArraySlideSource(
         pyramid(tissue_image(width, height, rects), n_levels), (mpp, mpp), name=name
     )
+
+
+TISSUE_PIECES_PX = ((300, 300, 1800, 1500, PINK), (2500, 1900, 800, 700, PURPLE))
+
+
+def write_tissue_slide(
+    directory: Path,
+    *,
+    size_px: tuple[int, int] = (4096, 3072),
+    mpp: float = 0.5,
+    pieces: Sequence[tuple[int, int, int, int, tuple[int, int, int]]] = TISSUE_PIECES_PX,
+    slide_id: str = "syn_tissue",
+    eval_only: dict[str, str] | None = None,
+) -> Path:
+    """A pyramid TIFF with tissue-coloured rectangles and a manifest naming it; returns the
+    manifest path. Default: native 20x, 2048 x 1536 um, two tissue pieces."""
+    import yaml  # tests only
+
+    write_pyramid_tiff(
+        directory / f"{slide_id}.tif", pyramid(tissue_image(*size_px, pieces), 5), mpp
+    )
+    entry: dict[str, object] = {"id": slide_id, "path": f"{slide_id}.tif", "license": "CC0-1.0"}
+    if eval_only:
+        entry["eval_only"] = eval_only
+    manifest = directory / "manifest.yaml"
+    manifest.write_text(yaml.safe_dump({"slides": [entry]}))
+    return manifest

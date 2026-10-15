@@ -466,3 +466,67 @@ Refuted, with the reason they were left unchanged:
   - Chromium runs on the cluster from `.tools/pw-browsers` (gitignored). CI installs it in a separate
     `web` job. The e2e tests skip without Playwright unless `SLIDETWIN_REQUIRE_E2E=1`.
 
+## M4: MCP and baseline agents (2026-10-15)
+
+- **Official SDK, version 2** (`mcp` 2.3: `MCPServer`, streamable HTTP), as SPEC 6.1 asks.
+  - It depends on `httpx2`, the successor of `httpx`. Starlette's `TestClient` now uses it, so
+    `httpx` left the dev dependencies.
+- **Tools mirror the actions one to one.** They return the REST JSON as text and as structured
+  content, plus the served JPEG as image content.
+  - A refused action is an `isError` result carrying the REST error envelope, so agents handle both
+    transports the same way.
+  - Argument type errors come from the SDK's schema check, as plain text, and are not logged, like
+    a REST 422.
+- **`/mcp` is a route, not a mount.**
+  - A mount at `/mcp` answers `/mcp` with a redirect to `/mcp/`. Behind a TLS proxy the redirect can
+    point to `http://`, and a POST does not survive it.
+  - A mount at `/` would send every unknown path to the MCP app instead of the REST 404 envelope.
+  - The SDK's route is added to the app's router, and the app's lifespan runs the SDK session
+    manager (a mounted app's own lifespan never runs).
+- **Stateless JSON responses.** Every tool takes the environment session id, so MCP needs no
+  transport session. Plain JSON also passes proxies that buffer event streams (the Space).
+- **Host and Origin checks on `/mcp`** (DNS rebinding protection). They are on by default for the
+  localhost forms. A deployment sets `SLIDETWIN_MCP_ALLOWED_HOSTS` to its host name, or `*`.
+- **Logs.** MCP actions are logged with `client = {"via": "mcp"}`. A test runs the same actions
+  through REST and MCP and finds the same parameters, costs, states, pixel hashes and errors.
+- **Agents are clients.** They never import the core. `Env` gives one interface over REST and MCP,
+  so each agent runs unchanged on either.
+- **Serpentine agent.**
+  - It plans fields that tile the slide at the 10x field size, keeping those that hold tissue in its
+    own thumbnail mask (saturation, dilated by two thumbnail pixels). It visits them row by row in
+    alternating directions: a `pan` when the next field is within about one viewport, otherwise
+    `move_to`.
+  - A colour heuristic flags fields where at least 30% of the tissue pixels are dense purple. The 3
+    highest are looked at again at 20x, and the visible extent of the largest purple region is
+    measured.
+  - The report is `indeterminate` when anything was flagged, else `absent`. It always adds a
+    negative claim for each tissue piece without a flag; that claim is the coverage proof.
+  - On the demo slides: `cmu1_small` needs 2 fields and reaches 100% coverage. `c16_aba3ae` needs
+    227 fields: 100% coverage, all checks passed, 83 s of wall time and 169 s of virtual time.
+  - The heuristic is not a diagnostic method. Lymph node tissue is purple almost everywhere, so most
+    fields are flagged.
+- **Random agent.** Seeded random moves and a random conclusion: the lower bound.
+- **Crop agent.** Thumbnail plus up to six 400 um crops of the most purple tissue blocks, under the
+  `unconstrained` profile only. Its findings cite the crops' view ids.
+- **LLM agent example.**
+  - Six tools: thumbnail, magnification, pan, move_to, measure, report. The report tool's input
+    schema is the report schema itself. Views return as images inside the tool results.
+  - Anthropic backend: the official SDK, model `claude-opus-5-5` at effort `medium` (that model's
+    default; thinking is always on).
+    - The loop never edits the transcript, because thinking blocks are tied to the conversation
+      they came from.
+    - Prompt caching is automatic on the growing prefix.
+    - A declined request is retried server-side on Anthropic's recommended fallback model
+      (`fallbacks: "default"`). This is on by default and can be removed.
+  - OpenAI-compatible backend (e.g. vLLM with a Qwen-VL model): plain HTTP. Tool messages carry
+    text only, so the images follow in a user message.
+  - Keys come from the environment only. No test calls a real model: a scripted chat drives the live
+    server, and the backends are checked against a fake SDK client and a mock server.
+  - Cost: each view is a 1280 x 1024 image, so `--max-turns` (default 40) bounds a reading.
+- **Correction to M5: edge cells of the coverage grid.**
+  - Found by the serpentine agent on `cmu1_small`: 97.5% was the most any reading could reach.
+  - A cell cut by the right or bottom slide border had its centre outside the slide, while views
+    are clamped to the slide, so no view could ever see it.
+  - Such cells are now centred on their part inside the slide, and tissue piece boxes are clipped
+    to the slide.
+

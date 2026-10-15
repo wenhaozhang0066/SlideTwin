@@ -36,7 +36,8 @@ It supports three kinds of experiments:
 | M2 | REST API for every action in SPEC section 7 | done |
 | M5 | Rule checks E1-E4, tissue coverage, enforced and advisory protocols | done |
 | M3 | Web reading UI (keyboard and pointer, English and Chinese) | done |
-| M4, M6, M7 | MCP and baseline agents, evaluation, deployment | in progress |
+| M4 | MCP tools at `/mcp`; serpentine, random, crop and LLM agents | done |
+| M6, M7 | Evaluation and visualisation, deployment | in progress |
 
 ## Quick start
 
@@ -89,7 +90,34 @@ curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
 Settings come from environment variables: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_SLIDE_DIR`,
 `SLIDETWIN_LOG_DIR` (required; trajectories are written there as they happen), `SLIDETWIN_CACHE_DIR`,
 `SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`, `SLIDETWIN_SESSION_MAX_AGE_S`,
-`SLIDETWIN_MAX_BODY_BYTES`. The default viewport is 1280 x 1024 px (see docs/DECISIONS.md).
+`SLIDETWIN_MAX_BODY_BYTES`, `SLIDETWIN_MCP_ALLOWED_HOSTS`, `SLIDETWIN_MCP_ALLOWED_ORIGINS`. The
+default viewport is 1280 x 1024 px (see docs/DECISIONS.md).
+
+## MCP and agents
+
+Every session action is also an MCP tool at `/mcp` (streamable HTTP). Any MCP client can read
+slides with it, Claude Code included:
+
+```bash
+claude mcp add --transport http slidetwin http://localhost:7860/mcp
+```
+
+Other clients have their own commands; see their documentation. On a public host name, set
+`SLIDETWIN_MCP_ALLOWED_HOSTS` to that name (the default accepts localhost only).
+
+Baseline agents run on your machine against a server, through REST or MCP:
+
+```bash
+python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
+python -m slidetwin.agents random --env http://localhost:7860 --transport mcp --slide cmu1_small
+python -m slidetwin.agents crop --env http://localhost:7860 --slide cmu1_small   # unconstrained profile
+
+# a vision LLM: the Anthropic API (pip install -e ".[llm]"; key in ANTHROPIC_API_KEY) ...
+python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small --out reading.jsonl
+# ... or any OpenAI-compatible endpoint, e.g. a local vLLM
+python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000/v1 \
+  --model Qwen/Qwen2.5-VL-7B-Instruct --env http://localhost:7860 --slide cmu1_small
+```
 
 ## Documentation
 
