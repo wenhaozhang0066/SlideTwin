@@ -75,6 +75,8 @@ Done 2026-10-15; see DECISIONS.md ("M4: MCP and baseline agents").
 
 ## M6: evaluation and visualisation
 
+Done 2026-10-15; see DECISIONS.md ("M6") and EVALUATION.md.
+
 - `scripts/convert_annotations.py` turns ASAP XML into micrometre GeoJSON. It is used for evaluation
   only; files go to the git-ignored `data/annotations/`.
 - `slidetwin/eval/` provides:
@@ -87,6 +89,9 @@ Done 2026-10-15; see DECISIONS.md ("M4: MCP and baseline agents").
   the numbers and the method go to `docs/`.
 
 ## M7: deployment and pilot
+
+Done 2026-10-15 except publishing the Space, which waits for the owner's tokens; see
+DECISIONS.md ("M7").
 
 - **Docker and the Space.**
   - Slides are fetched at startup from their public URLs into a cache, with progress. Remote reading

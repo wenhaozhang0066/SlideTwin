@@ -30,6 +30,8 @@ class Settings:
     max_body_bytes: int = 1_000_000
     mcp_allowed_hosts: tuple[str, ...] = LOCAL_HOSTS
     mcp_allowed_origins: tuple[str, ...] = LOCAL_ORIGINS
+    rate_limit_per_s: float = 0.0  # sustained requests per second per client; 0 turns it off
+    rate_limit_burst: int = 60
 
     def __post_init__(self) -> None:
         if not isinstance(self.max_sessions, int) or self.max_sessions < 1:
@@ -43,6 +45,14 @@ class Settings:
         if not isinstance(self.max_body_bytes, int) or self.max_body_bytes < 1024:
             raise ConfigError(
                 f"SLIDETWIN_MAX_BODY_BYTES must be at least 1024, got {self.max_body_bytes}."
+            )
+        if not (math.isfinite(self.rate_limit_per_s) and self.rate_limit_per_s >= 0):
+            raise ConfigError(
+                f"SLIDETWIN_RATE_LIMIT_PER_S must be 0 (off) or more, got {self.rate_limit_per_s}."
+            )
+        if not isinstance(self.rate_limit_burst, int) or self.rate_limit_burst < 1:
+            raise ConfigError(
+                f"SLIDETWIN_RATE_LIMIT_BURST must be at least 1, got {self.rate_limit_burst}."
             )
         if not isinstance(self.log_dir, Path) or not str(self.log_dir):
             raise ConfigError(
@@ -65,6 +75,8 @@ class Settings:
         SLIDETWIN_MAX_BODY_BYTES     1000000          request body limit
         SLIDETWIN_MCP_ALLOWED_HOSTS  localhost        Host values /mcp accepts (comma list, "*" any)
         SLIDETWIN_MCP_ALLOWED_ORIGINS  localhost      Origin values /mcp accepts (same format)
+        SLIDETWIN_RATE_LIMIT_PER_S   0 (off)          requests per second per client (image: 20)
+        SLIDETWIN_RATE_LIMIT_BURST   60               requests a client may send at once
         """
         env = os.environ if environ is None else environ
         config_dir = Path(env.get("SLIDETWIN_CONFIG_DIR", "configs"))
@@ -89,6 +101,8 @@ class Settings:
             max_body_bytes=_number(env, "SLIDETWIN_MAX_BODY_BYTES", "1000000", int),
             mcp_allowed_hosts=_list(env, "SLIDETWIN_MCP_ALLOWED_HOSTS", LOCAL_HOSTS),
             mcp_allowed_origins=_list(env, "SLIDETWIN_MCP_ALLOWED_ORIGINS", LOCAL_ORIGINS),
+            rate_limit_per_s=_number(env, "SLIDETWIN_RATE_LIMIT_PER_S", "0", float),
+            rate_limit_burst=_number(env, "SLIDETWIN_RATE_LIMIT_BURST", "60", int),
         )
 
     def check_log_dir(self) -> None:

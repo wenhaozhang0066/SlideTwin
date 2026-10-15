@@ -135,8 +135,13 @@ async def run(
     thumb = await s.get_thumbnail()
     pieces = thumb.observation["tissue_pieces"]
     mask = tissue_mask(decode(thumb.image or b""))
-    await s.set_magnification(config.scan_mag)
     ux, uy = thumb.observation["um_per_px"]
+    # The pieces the environment published may include pale or small tissue that this mask
+    # misses; scanning their boxes too keeps every negative claim backed by a full scan.
+    for p in pieces:
+        x0, y0, x1, y1 = p["bbox_um"]
+        mask[int(y0 / uy) : math.ceil(y1 / uy), int(x0 / ux) : math.ceil(x1 / ux)] = True
+    await s.set_magnification(config.scan_mag)
     w, h = s.slide["dimensions_um"]
     fw, fh = s.last.state["fov_um"]
     fields = plan_serpentine(mask, (ux, uy), (w, h), (fw, fh))

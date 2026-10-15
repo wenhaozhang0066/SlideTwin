@@ -86,5 +86,13 @@ label.inline, .inline { display: flex; gap: 8px; align-items: center; }
 .receipt ul { margin: 0; padding-left: 18px; }
 .receipt .fail { font-weight: 600; }
 .keys { display: block; margin-top: 6px; }
+.notice { font-size: 12px; }
+.help { max-width: min(640px, 92vw); color: var(--text); background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; }
+.help::backdrop { background: rgba(0, 0, 0, 0.55); }
+.help li { margin-bottom: 6px; }
+.feedback { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+.feedback fieldset { border: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.feedback legend { padding: 0; margin-bottom: 2px; }
+.feedback .rating { display: inline-flex; gap: 3px; align-items: center; }
 .message { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; max-width: min(720px, 92vw); background: #1f2023; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 14px; z-index: 10; }
 body.busy, body.busy * { cursor: progress !important; }

@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from slidetwin import __version__
 from slidetwin.api.errors import BodySizeLimit, install_error_handlers
+from slidetwin.api.limits import RateLimit
 from slidetwin.api.routes import router
 from slidetwin.api.settings import Settings
 from slidetwin.core.config import ConfigStore
@@ -83,6 +84,9 @@ def create_app(
     app.state.manager = mgr
     install_error_handlers(app)
     app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
+    app.add_middleware(  # outermost: refuses before any body is read
+        RateLimit, rate_per_s=settings.rate_limit_per_s, burst=settings.rate_limit_burst
+    )
 
     @app.get("/api/health", tags=["meta"])
     async def health() -> dict[str, str]:  # async: answers even when worker threads are busy

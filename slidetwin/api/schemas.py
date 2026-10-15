@@ -91,6 +91,19 @@ class ReportRequest(_Request):
 # --- responses -------------------------------------------------------------------------------
 
 
+Rating = Annotated[int, Field(strict=True, ge=1, le=5)]
+
+
+class FeedbackRequest(BaseModel):
+    """Optional pilot feedback on a session (1 = not at all, 5 = fully)."""
+
+    model_config = ConfigDict(extra="forbid")
+    navigation: Rating | None = Field(None, description="Navigation felt like a real viewer.")
+    timing: Rating | None = Field(None, description="The time costs felt realistic.")
+    report: Rating | None = Field(None, description="The report form fitted the task.")
+    comment: str = Field("", strict=True, max_length=4000)
+
+
 class ImageRef(BaseModel):
     url: str = Field(description="GET this URL for the same JPEG (only images served here).")
     mime: Literal["image/jpeg"] = "image/jpeg"

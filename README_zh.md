@@ -24,7 +24,8 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M5 | 规则检查 E1–E4、组织覆盖率、advisory 与 enforced 两种模式 | 完成 |
 | M3 | 网页阅片界面（键盘与鼠标均可操作，中英文） | 完成 |
 | M4 | `/mcp` 上的 MCP 工具；蛇形、随机、裁剪与 LLM agent | 完成 |
-| M6、M7 | 评测与可视化、部署 | 进行中 |
+| M6 | 病灶指标、轨迹图、规则档对比、评测报告 | 完成 |
+| M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；Space 尚未发布 |
 
 ## 快速开始
 
@@ -55,6 +56,13 @@ claude mcp add --transport http slidetwin http://localhost:7860/mcp
 python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install -e ".[llm]" 和 ANTHROPIC_API_KEY
 ```
+
+## 评测与部署
+
+- 评测工具在 `slidetwin/eval`，只在评测中读取 CAMELYON 标注；demo 评测报告见 [docs/EVALUATION.md](docs/EVALUATION.md)。
+- Docker：`docker run -p 7860:7860 slidetwin` 启动时下载公开 demo 切片（5.3 GB，校验 sha256）；读取自己的切片时挂载切片目录和 manifest，并设置 `SLIDETWIN_FETCH_SLIDES=0`。
+- 会话保存在内存中，服务重启会结束会话，请在结束时下载轨迹。
+- 病理专家试点见 [docs/PILOT.md](docs/PILOT.md)；代价参数可用 `python scripts/calibrate_costs.py` 从人类日志拟合。
 
 ## 文档
 

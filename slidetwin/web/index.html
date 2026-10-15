@@ -15,8 +15,22 @@
     <header class="banner">
       <strong>SlideTwin</strong>
       <span class="banner-note" role="note" data-i18n="banner.research"></span>
+      <button type="button" id="help-button" class="link-button" data-i18n="help.button"></button>
       <button type="button" id="lang-switch" class="link-button" data-i18n="lang.switch"></button>
     </header>
+
+    <dialog id="help" class="help" aria-labelledby="help-title">
+      <h2 id="help-title" data-i18n="help.title"></h2>
+      <ol>
+        <li data-i18n="help.1"></li>
+        <li data-i18n="help.2"></li>
+        <li data-i18n="help.3"></li>
+        <li data-i18n="help.4"></li>
+        <li data-i18n="help.5"></li>
+        <li data-i18n="help.6"></li>
+      </ol>
+      <form method="dialog"><button type="submit" class="primary" data-i18n="help.close"></button></form>
+    </dialog>
 
     <main id="start" class="screen start-screen">
       <form id="start-form" class="card" novalidate>
@@ -38,6 +52,7 @@
         <label class="inline"><input type="checkbox" id="timer-toggle" /> <span data-i18n="start.timer"></span></label>
         <button type="submit" id="start-button" class="primary" data-i18n="start.button"></button>
         <p id="start-status" class="muted" aria-live="polite"></p>
+        <p class="muted notice" data-i18n="start.notice"></p>
       </form>
     </main>
 
@@ -101,6 +116,16 @@
             <button type="submit" id="submit-report" class="primary" data-i18n="report.submit"></button>
           </form>
           <div id="receipt" class="receipt" hidden></div>
+          <form id="feedback-form" class="feedback" hidden>
+            <h3 data-i18n="feedback.title"></h3>
+            <small class="muted" data-i18n="feedback.scale"></small>
+            <fieldset data-question="navigation"><legend data-i18n="feedback.navigation"></legend></fieldset>
+            <fieldset data-question="timing"><legend data-i18n="feedback.timing"></legend></fieldset>
+            <fieldset data-question="report"><legend data-i18n="feedback.report"></legend></fieldset>
+            <label><span data-i18n="feedback.comment"></span><textarea id="f-comment" rows="3" maxlength="4000"></textarea></label>
+            <button type="submit" class="primary" data-i18n="feedback.send"></button>
+          </form>
+          <p id="feedback-thanks" class="muted" hidden data-i18n="feedback.thanks"></p>
         </section>
 
         <section>

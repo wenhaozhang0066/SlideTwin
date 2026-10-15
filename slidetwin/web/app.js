@@ -601,6 +601,7 @@ function checksList(checks) {
 
 function showReceipt(receipt) {
   S.closed = true;
+  showFeedbackForm();
   const box = $("receipt");
   const cov = receipt.coverage;
   box.replaceChildren(
@@ -615,6 +616,44 @@ function showReceipt(receipt) {
   box.hidden = false;
   for (const el of document.querySelectorAll("#report-form button, #mag-buttons button, #tool-buttons button")) {
     el.disabled = true;
+  }
+}
+
+// --- pilot feedback (optional, after the report) ---------------------------------------------------
+
+function showFeedbackForm() {
+  const form = $("feedback-form");
+  for (const set of form.querySelectorAll("fieldset[data-question]")) {
+    for (const old of set.querySelectorAll("label")) old.remove();
+    for (let v = 1; v <= 5; v += 1) {
+      const radio = Object.assign(document.createElement("input"), {
+        type: "radio",
+        name: set.dataset.question,
+        value: String(v),
+      });
+      const label = document.createElement("label");
+      label.className = "rating";
+      label.append(radio, String(v));
+      set.append(label);
+    }
+  }
+  form.hidden = false;
+}
+
+async function sendFeedback(ev) {
+  ev.preventDefault();
+  const form = $("feedback-form");
+  const body = { comment: $("f-comment").value };
+  for (const set of form.querySelectorAll("fieldset[data-question]")) {
+    const picked = set.querySelector("input:checked");
+    if (picked) body[set.dataset.question] = Number(picked.value);
+  }
+  try {
+    await api.feedback(S.sid, body);
+    form.hidden = true;
+    $("feedback-thanks").hidden = false;
+  } catch (err) {
+    say(explain(err));
   }
 }
 
@@ -692,6 +731,8 @@ async function start(ev) {
 function init() {
   setLang(detectLang(navigator.language));
   applyI18n();
+  $("help-button").addEventListener("click", () => $("help").showModal());
+  $("feedback-form").addEventListener("submit", sendFeedback);
   $("lang-switch").addEventListener("click", () => {
     setLang(currentLang() === "en" ? "zh" : "en");
     applyI18n();

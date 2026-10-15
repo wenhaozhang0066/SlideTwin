@@ -40,4 +40,6 @@ export const api = {
   /** Any POST action (thumbnail, magnification, pan, move_to, view, measure, annotations, report). */
   action: (sid, name, body) => call("POST", session(sid, `${name}?include_image=false`), body),
   trajectoryUrl: (sid) => session(sid, "trajectory"),
+  /** Optional pilot feedback, stored next to the session log. */
+  feedback: (sid, body) => call("POST", session(sid, "feedback"), body),
 };

@@ -1,7 +1,7 @@
 # Architecture and core contract
 
-This is the binding contract for `slidetwin.core` (M1), the REST layer (M2), the web UI (M3), and the
-MCP adapter and agent client (M4). If code and this document
+This is the binding contract for `slidetwin.core` (M1), the REST layer (M2), the web UI (M3), the
+MCP adapter and agent client (M4), the evaluation tools (M6) and deployment (M7). If code and this document
 disagree, one of them is a bug. SPEC sections are cited as "SPEC n".
 
 ## Layers
@@ -162,7 +162,11 @@ its trajectory line. The codes are:
 - `SLIDE_NOT_FOUND`, `SLIDE_METADATA`, `SLIDE_HASH_MISMATCH`
 - `SLIDE_READ_ERROR` (a tile could not be decoded)
 - `CONFIG_ERROR`, `REPORT_INVALID`, `REPLAY_ERROR`
+- `RULE_VIOLATION` (an enforced protocol refused the report; the failed checks come with it)
 - `INTERNAL` (an unexpected failure; the action was not applied)
+
+The REST layer adds `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `INVALID_REQUEST`, `PAYLOAD_TOO_LARGE` and
+`RATE_LIMITED` (429, with `Retry-After`) for requests that never reach a session.
 
 ## Images and hashes
 
@@ -289,6 +293,27 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
   measure, report) through `execute()`. Backends: the Anthropic SDK, or any OpenAI-compatible
   endpoint.
 - **CLI.** `python -m slidetwin.agents {serpentine,random,crop,llm} --env URL --slide ID`.
+
+## Evaluation (M6)
+
+`slidetwin/eval` holds offline tools that may read ground truth: annotations (`annotations.py`),
+metrics of a reading (`metrics.py`), pictures (`visualize.py`), the profile comparison and report
+(`compare.py`), and cost calibration (`calibrate.py`). They read trajectories and slides directly.
+Nothing that serves a session imports this package (a test checks it).
+
+    python -m slidetwin.eval convert --xml-dir PATH   # annotations -> data/annotations/
+    python -m slidetwin.eval run --out data/eval/RUN --slides ID,ID
+    python -m slidetwin.eval evaluate --out data/eval/RUN
+    python -m slidetwin.eval calibrate LOGS --fitted fitted.yaml
+
+## Deployment (M7)
+
+- `python -m slidetwin.serve` is the image's entry point. It fetches the manifest's slides when
+  `SLIDETWIN_FETCH_SLIDES=1` (`slidetwin/fetch_slides.py`, sha256-checked), then runs uvicorn with
+  one worker and trusted proxy headers.
+- `api/limits.py`: optional per-client rate limit on `/api` and `/mcp`
+  (`SLIDETWIN_RATE_LIMIT_PER_S`, `SLIDETWIN_RATE_LIMIT_BURST`; on in the image).
+- `POST /api/sessions/{id}/feedback`: optional pilot feedback, stored next to the session log.
 
 ## Ground truth isolation
 

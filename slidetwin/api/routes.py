@@ -19,6 +19,7 @@ from slidetwin.api.schemas import (
     CropRequest,
     EmptyRequest,
     ErrorOut,
+    FeedbackRequest,
     MagnificationRequest,
     MeasureRequest,
     MoveToRequest,
@@ -275,6 +276,14 @@ def export_trajectory(session_id: SessionId, m: Manager) -> Response:
         media_type="application/x-ndjson",
         headers={"Content-Disposition": f'attachment; filename="{session_id}.jsonl"'},
     )
+
+
+@router.post("/sessions/{session_id}/feedback", responses=READ_ERRORS, tags=["pilot"])
+def feedback(session_id: SessionId, body: FeedbackRequest, m: Manager) -> dict[str, bool]:
+    """Optional reader feedback for pilot studies, stored next to the session log (not part of
+    the trajectory). Accepted during and after the session."""
+    m.save_feedback(session_id, body.model_dump())
+    return {"saved": True}
 
 
 # --- images of this session only ----------------------------------------------------------------

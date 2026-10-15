@@ -8,6 +8,7 @@ app_port: 7860
 pinned: false
 license: apache-2.0
 short_description: Agent-operable digital pathology viewer simulator (research)
+startup_duration_timeout: 1h
 ---
 
 # SlideTwin
@@ -25,6 +26,9 @@ It supports three kinds of experiments:
 - **Negative coverage:** a "no metastasis" claim must come with a proof of coverage.
 - **Spatial measurement:** sizes and distances must be measured on the physical scale.
 
+![A reading of the CC0 test slide in the web UI: overview, magnification keys, a measurement, a
+polygon and the report receipt](docs/media/reading.gif)
+
 中文说明见 [README_zh.md](README_zh.md).
 
 ## Status
@@ -37,7 +41,8 @@ It supports three kinds of experiments:
 | M5 | Rule checks E1-E4, tissue coverage, enforced and advisory protocols | done |
 | M3 | Web reading UI (keyboard and pointer, English and Chinese) | done |
 | M4 | MCP tools at `/mcp`; serpentine, random, crop and LLM agents | done |
-| M6, M7 | Evaluation and visualisation, deployment | in progress |
+| M6 | Lesion metrics, trajectory pictures, profile comparison, evaluation report | done |
+| M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; Space not yet published |
 
 ## Quick start
 
@@ -119,10 +124,47 @@ python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000
   --model Qwen/Qwen2.5-VL-7B-Instruct --env http://localhost:7860 --slide cmu1_small
 ```
 
+## Evaluation
+
+Offline tools in `slidetwin/eval` score readings against the CAMELYON annotations, which are used
+for evaluation only. The demo report is in [docs/EVALUATION.md](docs/EVALUATION.md).
+
+```bash
+python -m slidetwin.eval convert --xml-dir /path/to/CAMELYON16/annotations
+python -m slidetwin.eval run --out data/eval/demo --slides c16_fa751c,c16_f606e8
+python -m slidetwin.eval evaluate --out data/eval/demo    # metrics, report table, pictures
+```
+
+## Deployment
+
+```bash
+docker build -t slidetwin --build-arg GIT_SHA=$(git rev-parse --short HEAD) .
+docker run -p 7860:7860 slidetwin           # downloads the public demo slides (5.3 GB) at start
+```
+
+To read your own slides, mount them and a manifest, and skip the download:
+
+```bash
+docker run -p 7860:7860 -e SLIDETWIN_FETCH_SLIDES=0 \
+  -v /path/to/slides:/data/slides \
+  -v /path/to/manifest.yaml:/app/configs/slides/manifest.yaml slidetwin
+```
+
+The image limits each client to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
+Hugging Face Space, also set `SLIDETWIN_MCP_ALLOWED_HOSTS` to the Space's host name. Sessions live
+in memory, so a restart ends them: download the trajectory at the end. If the download does not
+start inside the Hugging Face page, open the Space in its own tab.
+
+For a pathologist pilot, see [docs/PILOT.md](docs/PILOT.md). The cost model can be fitted from
+human logs with `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml`.
+
 ## Documentation
 
 - Specification: [docs/SPEC.md](docs/SPEC.md) (Chinese)
+- Architecture and contract: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Decision log: [docs/DECISIONS.md](docs/DECISIONS.md)
+- Evaluation report: [docs/EVALUATION.md](docs/EVALUATION.md)
+- Pilot guide: [docs/PILOT.md](docs/PILOT.md)
 - Data sources and licenses: [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md)
 
 ## Data

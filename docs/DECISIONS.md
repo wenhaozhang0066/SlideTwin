@@ -530,3 +530,88 @@ Refuted, with the reason they were left unchanged:
   - Such cells are now centred on their part inside the slide, and tissue piece boxes are clipped
     to the slide.
 
+## M6: evaluation and visualisation (2026-10-15)
+
+- **Ground truth stays in `slidetwin/eval`.** It reads the manifest's `eval_only` blocks and the
+  annotation files itself. A test checks that nothing in `core`, `api`, `mcp_server` or `agents`
+  imports it.
+- **Annotations.** ASAP XML becomes GeoJSON in slide micrometres, using the slide's own mpp (the
+  frame the sessions use), in the git-ignored `data/annotations/`.
+  - Groups: `Tumor`, `_0`, `_1` are tumour; `Exclusion`, `_2` are holes. Other groups are skipped.
+  - The demo slides' annotations hold only `Tumor` polygons.
+- **Deposits (draft definition, needs pathologist review).**
+  - Tumour polygons are drawn on an 8 um grid, minus exclusions. Polygons whose cells touch
+    (8-connected) form one deposit.
+  - A deposit's size is its greatest dimension: the largest distance between two vertices of its
+    polygons (the Feret diameter over their convex hull).
+  - On the demo slides this gives 4.05 mm (`c16_fa751c`), 1.27 mm (`c16_aba3ae`), 0.28 mm
+    (`c16_2abf4f`) and 4.74 mm (`c16_683d2d`), which agrees with the categories in the manifest.
+- **Metrics of a reading** (`eval/metrics.py`).
+  - Process: virtual time, views, coverage and violations from the receipt.
+  - Outcome: conclusion against the label (`indeterminate` counts as not correct), and category.
+  - Lesions: whether a view at 10x (screening) or 20x (confirmation) showed tumour, the tumour
+    share seen at 10x, and the virtual time to the first such view.
+  - Evidence: whether each finding's evidence views show tumour.
+  - Size error: the reported size (the largest cited measurement, else `largest_deposit_mm`)
+    against the largest deposit.
+  - "Shows tumour" means at least one 8 um tumour cell has its centre inside the view.
+- **Pictures** (`eval/visualize.py`). They go to `data/eval/` and stay out of git, because the
+  CAMELYON licence terms are unclear.
+  - A path overlay: every view as a rectangle coloured by magnification, joined in reading order.
+  - A replay GIF (at most 80 frames, 640 px).
+  - A coverage heatmap: tissue cells coloured by the highest magnification they were seen at.
+  - Lesion outlines appear only in these pictures.
+- **Profile comparison** (`eval/compare.py`). Each baseline runs under every profile it supports:
+  serpentine and random under `viewer` and `unconstrained`, the crop agent under `unconstrained`
+  only. Runs go through the REST API in process (an ASGI transport, no network).
+- **Results.** In `docs/EVALUATION.md`: numbers and method only.
+- **A finding from the first run, now fixed.** The serpentine agent made negative claims for three
+  small tissue pieces that its own thumbnail mask had missed, and E4 rejected them. It now also
+  scans the boxes of the tissue pieces the environment publishes, so every negative claim it makes
+  rests on a full scan.
+
+## M7: deployment and pilot (2026-10-15)
+
+- **Slides on the Space: downloaded at start, not read remotely.**
+  - Measured from the cluster for `tumor_093.tif` (one 1280 x 1024 view):
+    - local disk: about 0.01 s;
+    - tiffslide over HTTPS with fsspec: 1.2-2.3 s;
+    - with fsspec's block cache: 0.2-0.8 s for the first read of a region.
+  - Remote reads would make every move feel slow to a reader. The five CAMELYON demo slides are
+    5.3 GB, which fits the Space's disk.
+  - `python -m slidetwin.fetch_slides` (run by the image's entry point when
+    `SLIDETWIN_FETCH_SLIDES=1`) downloads each manifest slide with a `source_url`, checks the pinned
+    sha256 and renames the file only after the hash matches. It keeps files that are already
+    present and correct, and skips slides without a URL.
+  - A slide that fails to download is reported when it is opened; the server still starts.
+- **Image.** `python -m slidetwin.serve` runs uvicorn with one worker (sessions live in memory)
+  and trusts proxy headers (`FORWARDED_ALLOW_IPS`), so the rate limit sees the real client.
+  - `/data/slides` belongs to the image's user, so downloads work without a volume. A volume
+    mounted there (local slides) is used as it is.
+  - The image could not be built here (no Docker on the cluster). Its parts (the fetcher, the entry
+    point, the server) are tested separately.
+- **Rate limit** (SPEC 14). A token bucket per client address on `/api` and `/mcp`, answered with
+  `RATE_LIMITED` (429, `Retry-After`). It is off by default, so that local agents run at full
+  speed. The image turns it on at 20 requests per second, with bursts of 60.
+- **Restarts.** The start screen says that sessions live in memory and that the trajectory should
+  be downloaded at the end.
+- **Pilot.**
+  - `docs/PILOT.md` is the study team's guide: setup, session plan, what to collect, questions,
+    and calibration afterwards.
+  - The participants' instructions are in the UI (Help), in English and Chinese.
+  - An optional feedback form appears after the report (three 1-5 ratings and a comment). It is
+    stored in `SLIDETWIN_LOG_DIR/feedback/<session>.json`, next to the log and never in it.
+- **Calibration** (`scripts/calibrate_costs.py`, method in `eval/calibrate.py`).
+  - The time between a person's actions, from the logged wall clock, is that action's cost:
+    - medians for single-cost actions;
+    - medians minus `view_render_s` for moves that serve a view;
+    - a Theil-Sen line for pan (`pan_base_s` plus `pan_per_viewport_s` times the distance actually
+      moved).
+  - `view_render_s` is estimated only when there are at least 5 `view` actions; otherwise it keeps
+    its current value, because it cannot be separated from the moves.
+  - Breaks over 60 s and failed actions are left out. 95% intervals come from a bootstrap.
+  - Agents' logs are ignored.
+  - A simulation with known costs and 10% noise recovers them within 15%.
+- **README animation.** Recorded from the UI on the CC0 test slide (`scripts/make_readme_gif.py`).
+  The CAMELYON images are not used outside the running app.
+

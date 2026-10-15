@@ -50,15 +50,18 @@ def slide_setup(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
 
 
 @pytest.fixture(scope="module")
-def server(
-    slide_setup: tuple[Path, Path], tmp_path_factory: pytest.TempPathFactory
-) -> Iterator[str]:
+def e2e_logs(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("e2e_logs")
+
+
+@pytest.fixture(scope="module")
+def server(slide_setup: tuple[Path, Path], e2e_logs: Path) -> Iterator[str]:
     manifest, slide_dir = slide_setup
     settings = Settings(
         config_dir=CONFIG_DIR,
         manifest=manifest,
         slide_dir=slide_dir,
-        log_dir=tmp_path_factory.mktemp("e2e_logs"),
+        log_dir=e2e_logs,
         cache_dir=None,
         max_sessions=4,
         idle_ttl_s=600.0,
@@ -98,7 +101,7 @@ def _changes(page: Any, action: Any) -> None:
 
 
 def test_full_reading_in_the_browser(
-    server: str, browser: Any, slide_setup: tuple[Path, Path], tmp_path: Path
+    server: str, browser: Any, slide_setup: tuple[Path, Path], e2e_logs: Path, tmp_path: Path
 ) -> None:
     page = browser.new_page(viewport={"width": 1700, "height": 1150})
     problems: list[str] = []
@@ -212,8 +215,25 @@ def test_full_reading_in_the_browser(
     expect(receipt).to_contain_text("E1")
     expect(page.locator("#submit-report")).to_be_disabled()
 
+    # Optional pilot feedback, stored next to the session log.
+    feedback = page.locator("#feedback-form")
+    expect(feedback).to_be_visible()
+    page.locator("fieldset[data-question='navigation'] input[value='4']").check()
+    page.locator("fieldset[data-question='timing'] input[value='2']").check()
+    page.fill("#f-comment", "pan felt slow")
+    page.click("#feedback-form button[type='submit']")
+    expect(page.locator("#feedback-thanks")).to_be_visible()
+    saved = json.loads(next((e2e_logs / "feedback").glob("*.json")).read_text())
+    assert (saved["navigation"], saved["timing"], saved["report"]) == (4, 2, None)
+    assert saved["comment"] == "pan felt slow"
+
     page.click("#lang-switch")
     expect(page.locator(".banner-note")).to_contain_text("不用于临床诊断")
+    page.click("#help-button")
+    expect(page.locator("#help")).to_be_visible()
+    expect(page.locator("#help")).to_contain_text("如何在这里阅片")
+    page.click("#help button[type='submit']")
+    expect(page.locator("#help")).to_be_hidden()
     assert SECRET not in page.content()
 
     with page.expect_download() as download:
