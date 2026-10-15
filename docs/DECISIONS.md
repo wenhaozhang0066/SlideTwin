@@ -157,3 +157,72 @@ The binding contract is [ARCHITECTURE.md](ARCHITECTURE.md). Decisions made while
   - A log file is opened exclusively, so a session never appends to another session's log.
 - **Python 3.11 support.** tiffslide 4.0, numpy 2.5 and tifffile 2026 need Python 3.12. On 3.11, pip
   resolves tiffslide 3.0.x, which CI covers.
+
+## M2: REST API (2026-10-15)
+
+- **One route per SPEC 7 action.** Each route calls exactly one `SessionManager` or `Session` method:
+
+  | Action | Route |
+  |---|---|
+  | create_session | `POST /api/sessions` |
+  | get_state | `GET .../state` |
+  | get_thumbnail | `POST .../thumbnail` |
+  | set_magnification | `POST .../magnification` |
+  | pan | `POST .../pan` |
+  | move_to | `POST .../move_to` |
+  | view | `POST .../view` |
+  | measure | `POST .../measure` |
+  | annotate | `POST .../annotations` |
+  | crop | `POST .../crop` |
+  | submit_report | `POST .../report` |
+  | export_trajectory | `GET .../trajectory` |
+
+  - Actions that cost time or change state are POST.
+  - `get_state` is a GET, costs 0 and is still logged.
+- **Images.**
+  - Responses embed the JPEG as base64 by default (agents); `include_image=false` returns only its
+    URL (the web UI).
+  - `GET .../views/{view_id}.jpg` and `.../thumbnails/{thumb_id}.jpg` serve only images that session
+    was already served and logged.
+  - There is no tile, region or slide-image endpoint.
+- **Catalogue.**
+  - `GET /api/slides` lists manifest ids with license, attribution and source only. Opening slides
+    would hash gigabyte files, and labels are never listed.
+  - `GET /api/profiles` returns the full rules (costs, presets, budgets).
+  - `GET /api/protocols` returns the task descriptions.
+  - `create_session` also returns `slide`, `task` (protocol) and `rules` (profile), so humans and
+    agents see the same rules.
+- **Errors.**
+  - One envelope: `{"error": {"code", "message", "hint", "details"}}`.
+  - Status by code:
+
+    | Status | Codes |
+    |---|---|
+    | 400 | parameter and magnification errors, outside view |
+    | 403 | action not allowed by the profile |
+    | 404 | unknown session, image or slide |
+    | 409 | session closed, budget used up, no current view |
+    | 413 | body larger than `SLIDETWIN_MAX_BODY_BYTES` (1 MB) |
+    | 422 | `INVALID_REQUEST` (schema), report invalid, slide metadata |
+    | 503 | too many sessions |
+    | 500 | config or integrity errors; `INTERNAL`, with no details leaked and the server log keeping the trace |
+
+  - Request models forbid unknown fields and non-finite numbers. The core validates again.
+- **Session store.**
+  - Sessions live in memory with a 2 h idle TTL and a limit of 16. When the limit is reached, closed
+    sessions are evicted first.
+  - Creation is serialised so the limit holds.
+  - Session ids are random 128-bit hex. They act as capability tokens; there are no user accounts
+    (SPEC 2).
+  - Trajectories and served images are written to `SLIDETWIN_LOG_DIR/sessions/` as they happen. An
+    expired session's trajectory can still be downloaded; its images are not served.
+- **Body limit.** A pure ASGI middleware buffers at most `max_body_bytes` before the app reads the
+  body. FastAPI would otherwise turn a stream error into a 400.
+- **Settings.**
+  - Environment variables only: `SLIDETWIN_CONFIG_DIR`, `_MANIFEST`, `_SLIDE_DIR`, `_LOG_DIR`,
+    `_CACHE_DIR`, `_MAX_SESSIONS`, `_SESSION_TTL_S`, `_MAX_BODY_BYTES`.
+  - `slidetwin.api.main:app` is built on first access, so importing the module has no side effects.
+- **Deferred.**
+  - Rate limiting and CORS: rate limiting arrives with the public Space (M7). The web UI (M3) is
+    same-origin.
+  - Rule checks E1-E4 and coverage in the report receipt: M5.

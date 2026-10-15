@@ -159,6 +159,13 @@ immediately.
     `pixel_sha256`.
   - It requires the same slide sha256 and the same profile and protocol hashes.
 
+## REST layer (M2)
+
+`slidetwin/api` is a thin adapter: request models (`schemas.py`), one route per action (`routes.py`),
+error mapping and the body-size limit (`errors.py`), settings from the environment (`settings.py`).
+OpenAPI is served at `/openapi.json` and `/docs`. The route table and status codes are in
+DECISIONS.md (M2).
+
 ## Ground truth isolation
 
 The slide manifest may hold an `eval_only` block for evaluation scripts. The core loader deletes it before

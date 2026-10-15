@@ -33,7 +33,7 @@ It supports three kinds of experiments:
 |---|---|---|
 | M0 | Scaffold, tooling, CI, health endpoint | done |
 | M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | done |
-| M2 | REST API for every action in SPEC section 7 | planned |
+| M2 | REST API for every action in SPEC section 7 | done |
 | M3-M7 | Web UI, MCP and baseline agents, rule checks, evaluation, deployment | later |
 
 ## Quick start
@@ -46,6 +46,41 @@ uvicorn slidetwin.api.main:app --reload --port 7860
 ```
 
 All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, pytest with the coverage gate).
+
+## The API in one minute
+
+Every action of a reading session is one HTTP call. Interactive docs are at `/docs`.
+
+```bash
+# open a slide (returns the first view, the slide geometry, the task and the rules)
+curl -s -X POST localhost:7860/api/sessions -H 'content-type: application/json' \
+  -d '{"slide_id": "cmu1_small", "actor": "agent:demo"}' > session.json
+SID=$(python -c 'import json; print(json.load(open("session.json"))["session_id"])')
+
+# move: every response carries cost_s, elapsed_s, the new state and the new view (base64 JPEG)
+curl -s -X POST localhost:7860/api/sessions/$SID/magnification -H 'content-type: application/json' -d '{"mag": 10}'
+curl -s -X POST localhost:7860/api/sessions/$SID/pan -H 'content-type: application/json' -d '{"dx": 0.5, "dy": 0}'
+curl -s -X POST localhost:7860/api/sessions/$SID/measure -H 'content-type: application/json' \
+  -d '{"p1_px": [100, 100], "p2_px": [400, 100]}'
+
+# the log: one JSON line per action, replayable with slidetwin.core.replay
+curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
+```
+
+| Action | Route |
+|---|---|
+| create_session | `POST /api/sessions` |
+| get_state | `GET /api/sessions/{id}/state` |
+| get_thumbnail | `POST /api/sessions/{id}/thumbnail` |
+| set_magnification | `POST /api/sessions/{id}/magnification` |
+| pan / move_to / view | `POST /api/sessions/{id}/pan`, `/move_to`, `/view` |
+| measure / annotate | `POST /api/sessions/{id}/measure`, `/annotations` |
+| crop (`unconstrained` only) | `POST /api/sessions/{id}/crop` |
+| submit_report | `POST /api/sessions/{id}/report` |
+| export_trajectory | `GET /api/sessions/{id}/trajectory` |
+
+Settings come from environment variables: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_SLIDE_DIR`,
+`SLIDETWIN_LOG_DIR`, `SLIDETWIN_CACHE_DIR`, `SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`.
 
 ## Documentation
 
