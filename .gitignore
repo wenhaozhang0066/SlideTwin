@@ -1,0 +1,35 @@
+# Slides, runtime artefacts and secrets never go into git.
+data/
+cache/
+logs/
+.env
+*.env
+.venv*/
+.tools/
+
+# Whole-slide image formats
+*.svs
+*.tif
+*.tiff
+*.ndpi
+*.mrxs
+*.scn
+*.vms
+*.vmu
+*.bif
+*.dcm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
