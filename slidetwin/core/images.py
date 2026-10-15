@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Protocol
 
@@ -16,7 +17,7 @@ from slidetwin.core.errors import ImageNotFound
 from slidetwin.core.slide_source import RGB
 
 SUBSAMPLING = {"4:4:4": 0, "4:2:2": 1, "4:2:0": 2}
-IMAGE_ID_RE = re.compile(r"^[vt]_\d{4,}$")
+IMAGE_ID_RE = re.compile(r"[vt]_[0-9]{4,9}")
 
 
 def pixel_sha256(arr: RGB) -> str:
@@ -45,15 +46,25 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def is_image_id(value: object) -> bool:
+    return isinstance(value, str) and IMAGE_ID_RE.fullmatch(value) is not None
+
+
 class ImageStore(Protocol):
     def put(self, image_id: str, data: bytes) -> None: ...
 
     def get(self, image_id: str) -> bytes: ...
 
+    def discard(self) -> None:
+        """Delete every stored image (the session is gone)."""
+        ...
 
-def _check_id(image_id: str) -> None:
-    if not IMAGE_ID_RE.match(image_id):
-        raise ImageNotFound(f"'{image_id}' is not a view or thumbnail id.")
+
+def _check_id(image_id: object) -> str:
+    if not is_image_id(image_id):
+        raise ImageNotFound(f"{str(image_id)[:40]!r} is not a view or thumbnail id.")
+    assert isinstance(image_id, str)
+    return image_id
 
 
 class MemoryImageStore:
@@ -61,35 +72,40 @@ class MemoryImageStore:
         self._data: dict[str, bytes] = {}
 
     def put(self, image_id: str, data: bytes) -> None:
-        _check_id(image_id)
-        self._data[image_id] = data
+        self._data[_check_id(image_id)] = data
 
     def get(self, image_id: str) -> bytes:
-        _check_id(image_id)
         try:
-            return self._data[image_id]
+            return self._data[_check_id(image_id)]
         except KeyError:
             raise ImageNotFound(f"Image '{image_id}' was not served in this session.") from None
 
+    def discard(self) -> None:
+        self._data.clear()
+
 
 class DiskImageStore:
-    """Images under `root/<id>.jpg`, so long sessions do not hold views in memory."""
+    """Images under `root/<id>.jpg`, so long sessions do not hold views in memory.
+
+    The folder is created on the first image, so a session that never starts leaves nothing.
+    """
 
     def __init__(self, root: Path) -> None:
         self._root = root
-        root.mkdir(parents=True, exist_ok=True)
 
     def put(self, image_id: str, data: bytes) -> None:
-        _check_id(image_id)
-        target = self._root / f"{image_id}.jpg"
+        target = self._root / f"{_check_id(image_id)}.jpg"
+        self._root.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".part")
         tmp.write_bytes(data)
         os.replace(tmp, target)
 
     def get(self, image_id: str) -> bytes:
-        _check_id(image_id)
-        target = self._root / f"{image_id}.jpg"
+        target = self._root / f"{_check_id(image_id)}.jpg"
         try:
             return target.read_bytes()
         except FileNotFoundError:
             raise ImageNotFound(f"Image '{image_id}' was not served in this session.") from None
+
+    def discard(self) -> None:
+        shutil.rmtree(self._root, ignore_errors=True)

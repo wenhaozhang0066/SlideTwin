@@ -5,6 +5,7 @@ Pathology content lives only in `configs/protocols/*.yaml`; nothing here encodes
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import math
@@ -12,7 +13,14 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from slidetwin.core.errors import ConfigError
 
@@ -116,76 +124,124 @@ class Profile(_Strict):
 
 # --- protocols ---------------------------------------------------------------------------------
 
+Finite = Annotated[float, Field(allow_inf_nan=False)]
+PositiveFinite = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 
-class GeneralRule(_Strict):
-    id: str
+
+class Reviewed(_Strict):
+    """Review state of one rule (SPEC 5): draft until a pathologist confirms it, with name and
+    date."""
+
     status: Status = "draft"
-    text: str
+    reviewed_by: str | None = None
+    reviewed_on: datetime.date | None = None
+
+    @model_validator(mode="after")
+    def _confirmed_needs_reviewer(self) -> Reviewed:
+        if self.status == "confirmed" and (not self.reviewed_by or self.reviewed_on is None):
+            raise ValueError("a confirmed rule needs reviewed_by and reviewed_on (YYYY-MM-DD)")
+        return self
 
 
-class MagnificationRules(_Strict):
-    screen_min: float = Field(gt=0)
-    confirm_min: float = Field(gt=0)
+class TextRule(Reviewed):
+    id: str = Field(pattern=r"^[A-Z0-9][A-Z0-9-]{0,31}$")
+    text: str = Field(min_length=1)
 
 
-class MeasurementRules(_Strict):
+class MagnificationRules(Reviewed):
+    screen_min: PositiveFinite
+    confirm_min: PositiveFinite
+
+
+class MeasurementRules(Reviewed):
     rule: str
     include_satellites: bool
     include_extranodal_extension: bool
     min_pixels_across: int = Field(ge=1)
 
 
-class CoverageRules(_Strict):
+class CoverageRules(Reviewed):
     negative_min_fraction: float = Field(ge=0, le=1)
-    at_or_above_mag: float = Field(gt=0)
-    grid_um: float = Field(gt=0)
+    at_or_above_mag: PositiveFinite
+    grid_um: PositiveFinite
 
 
-class Protocol(_Strict):
+class CategoryRule(Reviewed):
+    """One report category with its size and cell-count limits (e.g. gt_mm, le_mm, cells_le)."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    limits: dict[str, Finite] = Field(min_length=1)
+    note: str | None = None
+
+
+class Hints(Reviewed):
+    hints: tuple[str, ...] = ()
+
+
+class ReportingRules(Reviewed):
+    fields: tuple[str, ...] = Field(min_length=1)
+
+
+class Protocol(Reviewed):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     version: str
-    status: Status
-    reviewed_by: str | None = None
-    reviewed_on: str | None = None
     title: str
     instructions: str
-    general_rules: tuple[GeneralRule, ...] = ()
+    general_rules: tuple[TextRule, ...] = ()
+    task_rules: tuple[TextRule, ...] = ()
     magnification: MagnificationRules
     measurement: MeasurementRules
     coverage: CoverageRules
-    categories: dict[str, dict[str, float]]
-    category_notes: tuple[str, ...] = ()
-    reading_path_hints: tuple[str, ...] = ()
-    report_fields: tuple[str, ...]
+    categories: tuple[CategoryRule, ...] = Field(min_length=1)
+    reading_path_hints: Hints = Hints()
+    reporting: ReportingRules
     enforcement: Literal["advisory", "enforced"] = "advisory"
+
+    @model_validator(mode="after")
+    def _confirmed_only_when_every_rule_is(self) -> Protocol:
+        ids = [r.id for r in (*self.general_rules, *self.task_rules)]
+        if len(ids) != len(set(ids)):
+            raise ValueError("rule ids must be unique")
+        categories = [c.id for c in self.categories]
+        if len(categories) != len(set(categories)):
+            raise ValueError("category ids must be unique")
+        if self.status == "confirmed":
+            drafts = [ref for ref, rule in self.review_items() if rule.status != "confirmed"]
+            if drafts:
+                raise ValueError(f"protocol is confirmed but these rules are draft: {drafts}")
+        return self
+
+    def review_items(self) -> list[tuple[str, Reviewed]]:
+        """Every reviewable rule with a stable reference, e.g. 'general_rules.R-G1', 'coverage'."""
+        items: list[tuple[str, Reviewed]] = [
+            (f"general_rules.{r.id}", r) for r in self.general_rules
+        ]
+        items += [(f"task_rules.{r.id}", r) for r in self.task_rules]
+        items += [
+            ("magnification", self.magnification),
+            ("measurement", self.measurement),
+            ("coverage", self.coverage),
+        ]
+        items += [(f"categories.{c.id}", c) for c in self.categories]
+        items += [("reading_path_hints", self.reading_path_hints), ("reporting", self.reporting)]
+        return items
 
     def task_description(self) -> dict[str, Any]:
         """What every reader, human or agent, is told at session start: the full protocol they are
-        judged by (it contains no ground truth)."""
-        rules = self.model_dump(mode="json")
-        return {
-            "protocol_id": self.id,
-            "protocol_version": self.version,
-            "status": self.status,
-            "title": self.title,
-            "instructions": self.instructions,
-            "general_rules": rules["general_rules"],
-            "magnification": rules["magnification"],
-            "measurement": rules["measurement"],
-            "coverage": rules["coverage"],
-            "categories": rules["categories"],
-            "category_notes": rules["category_notes"],
-            "reading_path_hints": rules["reading_path_hints"],
-            "report_fields": rules["report_fields"],
-            "enforcement": self.enforcement,
-        }
+        judged by, with each rule's review status (it contains no ground truth)."""
+        out: dict[str, Any] = self.model_dump(mode="json")
+        out["protocol_id"] = out.pop("id")
+        out["protocol_version"] = out.pop("version")
+        return out
 
 
 # --- hashing and loading -----------------------------------------------------------------------
 
 
 def canonical_json(data: Any) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    )
 
 
 def content_hash(model: BaseModel) -> str:

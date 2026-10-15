@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 class SlideTwinError(Exception):
-    """Base error. `message` says what went wrong; `hint` says how to fix it."""
+    """Base error. `message` says what went wrong; `hint` says how to fix it.
+
+    When a session action fails, the session sets `context` to where the failure sits in its log
+    (seq, cost_s 0, elapsed_s), so a client can tie the error to its trajectory line.
+    """
 
     code: ClassVar[str] = "INTERNAL"
 
@@ -14,11 +18,14 @@ class SlideTwinError(Exception):
         super().__init__(message)
         self.message = message
         self.hint = hint
+        self.context: dict[str, Any] | None = None
 
-    def to_dict(self) -> dict[str, str]:
-        out = {"code": self.code, "message": self.message}
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"code": self.code, "message": self.message}
         if self.hint:
             out["hint"] = self.hint
+        if self.context:
+            out.update(self.context)
         return out
 
 
@@ -88,3 +95,15 @@ class ReportInvalid(SlideTwinError):
 
 class ReplayError(SlideTwinError):
     code = "REPLAY_ERROR"
+
+
+class SlideReadError(SlideTwinError):
+    """The slide file could not be decoded at the requested place (corrupt or unsupported data)."""
+
+    code = "SLIDE_READ_ERROR"
+
+
+class InternalError(SlideTwinError):
+    """An unexpected failure. The action was not applied; the failure is logged when possible."""
+
+    code = "INTERNAL"

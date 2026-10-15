@@ -16,8 +16,9 @@ from slidetwin.core.trajectory import load_trajectory, parse_trajectory
 
 # Fields of an event that must be identical in a replay. Wall time and client metadata are not.
 COMPARED_FIELDS = ("action", "cost_s", "t_virtual_s", "state_after", "view_id")
-# Encoder output may differ across Pillow builds; pixels may not.
-OBSERVATION_IGNORED = frozenset({"jpeg_sha256"})
+# Encoder output may differ across Pillow builds; pixels may not. An observation's seq repeats its
+# event's position, which shifts when replay skips an INTERNAL failure.
+OBSERVATION_IGNORED = frozenset({"jpeg_sha256", "seq"})
 
 
 @dataclass
@@ -26,6 +27,7 @@ class ReplayReport:
     events: int
     images_checked: int
     mismatches: list[dict[str, Any]] = field(default_factory=list)
+    skipped: int = 0  # INTERNAL failures: environment errors that applied nothing
 
 
 def _dispatch(s: Session, action: str, p: Mapping[str, Any]) -> None:
@@ -100,29 +102,40 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
         raise ReplayError(
             f"Slide '{slide.slide_id}' differs from the file used in the log (sha256 mismatch)."
         )
-    profile = load_profile_data(header["profile"]["content"], "trajectory header")
-    protocol = load_protocol_data(header["protocol"]["content"], "trajectory header")
+    try:
+        profile = load_profile_data(header["profile"]["content"], "trajectory header")
+        protocol = load_protocol_data(header["protocol"]["content"], "trajectory header")
+    except SlideTwinError as err:
+        raise ReplayError(f"The trajectory header holds an invalid config: {err.message}") from None
     if content_hash(profile) != header["profile"]["sha256"]:
         raise ReplayError("The profile in the trajectory header does not match its hash.")
     if content_hash(protocol) != header["protocol"]["sha256"]:
         raise ReplayError("The protocol in the trajectory header does not match its hash.")
 
-    session = Session(
-        session_id=f"replay-{header['session_id']}",
-        slide_id=slide.slide_id,
-        source=slide.source,
-        slide_sha256=slide.sha256,
-        profile=profile,
-        protocol=protocol,
-        actor=header["actor"],
-        images=MemoryImageStore(),
-        viewport_px=header["viewport_px"],
-    )
+    try:
+        session = Session(
+            session_id=f"replay-{header['session_id']}",
+            slide_id=slide.slide_id,
+            source=slide.source,
+            slide_sha256=slide.sha256,
+            profile=profile,
+            protocol=protocol,
+            actor=header["actor"],
+            images=MemoryImageStore(),
+            viewport_px=header["viewport_px"],
+        )
+    except SlideTwinError as err:
+        raise ReplayError(f"The session in the log cannot be recreated: {err.message}") from None
     mismatches: list[dict[str, Any]] = []
     _compare(events[0], session.history[1], mismatches)
+    skipped = 0
     for event in events[1:]:
+        if (event.get("error") or {}).get("code") == "INTERNAL":
+            # An environment failure (e.g. a full disk) that changed nothing; it cannot be re-run.
+            skipped += 1
+            continue
         try:
-            _dispatch(session, event["action"], event.get("params") or {})
+            _dispatch(session, event["action"], event["params"])
         except ReplayError:
             raise
         except SlideTwinError:
@@ -135,5 +148,9 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
     )
     session.close()
     return ReplayReport(
-        ok=not mismatches, events=len(events), images_checked=images, mismatches=mismatches
+        ok=not mismatches,
+        events=len(events),
+        images_checked=images,
+        mismatches=mismatches,
+        skipped=skipped,
     )

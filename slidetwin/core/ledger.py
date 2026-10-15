@@ -81,8 +81,13 @@ class Ledger:
             return to_us(cm.measure_s)
         return to_us(cm.annotate_s)  # annotate
 
-    def check(self, action: str) -> None:
-        """Raise if the budget is used up and the action is not exempt."""
+    def check(self, action: str, *, serves_view: bool = False) -> None:
+        """Raise if the action is over budget.
+
+        Time budget: once used up, every action except the exempt ones is refused. View budget:
+        refuses only actions that would serve another view; measuring, annotating and the
+        thumbnail stay possible on what has been seen.
+        """
         if action in BUDGET_EXEMPT:
             return
         b = self.budget
@@ -92,10 +97,10 @@ class Ledger:
                 f"{b.max_virtual_s:g} s).",
                 hint="Only submit_report, get_state and export_trajectory are allowed now.",
             )
-        if b.max_views is not None and self.views_served >= b.max_views:
+        if serves_view and b.max_views is not None and self.views_served >= b.max_views:
             raise BudgetExhausted(
                 f"The view budget is used up ({self.views_served} of {b.max_views} views).",
-                hint="Only submit_report, get_state and export_trajectory are allowed now.",
+                hint="You can still measure or annotate the current view, then submit_report.",
             )
 
     def charge(self, cost_us: int) -> None:

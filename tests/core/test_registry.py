@@ -10,7 +10,12 @@ import tifffile
 import yaml
 
 from slidetwin.core import registry as registry_mod
-from slidetwin.core.errors import ConfigError, SlideIntegrityError, SlideNotFound
+from slidetwin.core.errors import (
+    ConfigError,
+    SlideIntegrityError,
+    SlideMetadataError,
+    SlideNotFound,
+)
 from slidetwin.core.registry import SlideEntry, SlideRegistry, file_sha256, parse_manifest
 from tests.conftest import CONFIG_DIR
 from tests.helpers.synth import line_image, pyramid, write_pyramid_tiff
@@ -36,13 +41,12 @@ def test_repo_manifest_parses_and_drops_ground_truth() -> None:
     entries = parse_manifest(data)
     ids = [e.id for e in entries]
     assert ids[0] == "cmu1_small"
-    assert "c16_tumor_082" in ids
+    assert "c16_fa751c" in ids
     for e in entries:
-        dumped = json.dumps(e.model_dump())
+        dumped = json.dumps(e.public())
         assert "eval_only" not in dumped
-        assert "macro" not in dumped
-        assert "micro" not in dumped
-        assert "annotation" not in dumped
+        for word in ("tumor", "normal", "macro", "micro", "negative", "annotation"):
+            assert word not in dumped.lower(), (e.id, word)
 
 
 @pytest.mark.parametrize(
@@ -76,7 +80,7 @@ def test_manifest_file_errors(tmp_path: Path) -> None:
 
 def test_get_opens_hashes_and_caches(slide_dir: Path, tmp_path: Path) -> None:
     digest = file_sha256(slide_dir / "syn.tif")
-    reg = SlideRegistry([entry(sha256=digest)], slide_dir, cache_dir=tmp_path / "cache")
+    reg = SlideRegistry([entry()], slide_dir, cache_dir=tmp_path / "cache")
     first = reg.get("syn")
     assert first.sha256 == digest
     assert first.source.mpp == pytest.approx((0.5, 0.5))
@@ -84,9 +88,23 @@ def test_get_opens_hashes_and_caches(slide_dir: Path, tmp_path: Path) -> None:
     assert reg.entry("syn") is not None
     assert reg.entry("nope") is None
     assert reg.ids() == ["syn"]
+    assert reg.catalogue() == [{"id": "syn", "license": None, "attribution": None}]
     cache = json.loads((tmp_path / "cache" / "slide_sha256.json").read_text())
     assert list(cache.values()) == [digest]
     reg.close()
+
+
+def test_pinned_hash_is_checked_on_the_file_not_the_cache(
+    slide_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    digest = file_sha256(slide_dir / "syn.tif")
+    cache_dir = tmp_path / "cache"
+    SlideRegistry([entry()], slide_dir, cache_dir=cache_dir).get("syn")  # fills the cache
+    forged = {k: "0" * 64 for k in json.loads((cache_dir / "slide_sha256.json").read_text())}
+    (cache_dir / "slide_sha256.json").write_text(json.dumps(forged))
+    with pytest.raises(SlideIntegrityError):
+        SlideRegistry([entry(sha256="0" * 64)], slide_dir, cache_dir=cache_dir).get("syn")
+    assert SlideRegistry([entry(sha256=digest)], slide_dir, cache_dir=cache_dir).get("syn")
 
 
 def test_hash_cache_is_reused(
@@ -98,9 +116,48 @@ def test_hash_cache_is_reused(
     monkeypatch.setattr(registry_mod, "file_sha256", lambda p: calls.append(p) or "f" * 64)
     SlideRegistry([entry()], slide_dir, cache_dir=cache_dir).get("syn")
     assert calls == []
-    (cache_dir / "slide_sha256.json").write_text("{not json")
-    assert SlideRegistry([entry()], slide_dir, cache_dir=cache_dir).get("syn").sha256 == "f" * 64
-    assert len(calls) == 1
+    for junk in ("{not json", "[]", "null", '{"k": 12345}'):
+        (cache_dir / "slide_sha256.json").write_text(junk)
+        assert (
+            SlideRegistry([entry()], slide_dir, cache_dir=cache_dir).get("syn").sha256 == "f" * 64
+        )
+    assert len(calls) == 4
+
+
+def test_unwritable_cache_is_not_fatal(slide_dir: Path, tmp_path: Path) -> None:
+    blocker = tmp_path / "cache"
+    blocker.write_text("a file where the cache dir should be")
+    reg = SlideRegistry([entry()], slide_dir, cache_dir=blocker)
+    assert reg.get("syn").sha256 == file_sha256(slide_dir / "syn.tif")
+
+
+def test_ids_must_not_reveal_ground_truth() -> None:
+    leaky = {"slides": [{"id": "c16_tumor_001", "path": "a.tif", "eval_only": {"label": "tumor"}}]}
+    with pytest.raises(ConfigError, match="exposes ground truth"):
+        parse_manifest(leaky)
+    leaky_attr = {
+        "slides": [
+            {
+                "id": "s1",
+                "path": "a.tif",
+                "attribution": "a macro case",
+                "eval_only": {"category": "macro"},
+            }
+        ]
+    }
+    with pytest.raises(ConfigError, match="attribution"):
+        parse_manifest(leaky_attr)
+    ok = {"slides": [{"id": "s1", "path": "a.tif", "eval_only": {"label": "tumor", "x": "ab"}}]}
+    assert parse_manifest(ok)[0].id == "s1"
+
+
+def test_broken_slide_file_names_only_the_slide_id(tmp_path: Path) -> None:
+    (tmp_path / "tumor_009.tif").write_bytes(b"not a tiff at all")
+    reg = SlideRegistry([entry(id="s9", path="tumor_009.tif")], tmp_path)
+    with pytest.raises(SlideMetadataError) as err:
+        reg.get("s9")
+    assert "s9" in err.value.message
+    assert "tumor" not in err.value.message
 
 
 def test_no_cache_dir_still_hashes(slide_dir: Path) -> None:

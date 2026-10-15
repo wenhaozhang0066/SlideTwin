@@ -212,13 +212,19 @@ def displacement_in_viewports(c0: Point, c1: Point, fov: tuple[float, float]) ->
 # --- thumbnails and crops ---------------------------------------------------------------------
 
 
-def thumbnail_size(slide_um: tuple[float, float], long_side_px: int) -> Size:
+def thumbnail_size(slide_um: tuple[float, float], long_side_px: int, native_mpp: float) -> Size:
+    """Thumbnail of the whole slide: long side at most `long_side_px`, never finer than the scan."""
     w, h = slide_um
     if not _finite(w, h) or w <= 0 or h <= 0:
         raise InvalidParameter(f"Slide size must be positive, got {w} x {h} um.")
-    if w >= h:
-        return (long_side_px, max(1, round(long_side_px * h / w)))
-    return (max(1, round(long_side_px * w / h)), long_side_px)
+    mpp = max(max(w, h) / long_side_px, native_mpp)
+    size = []
+    for extent in (w, h):
+        n = max(1, round(extent / mpp))
+        if n > 1 and extent / n < native_mpp:  # rounding up would upsample
+            n -= 1
+        size.append(n)
+    return (size[0], size[1])
 
 
 def crop_geometry(

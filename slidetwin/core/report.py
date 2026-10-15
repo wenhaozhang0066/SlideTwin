@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -19,7 +19,11 @@ SCHEMA_PATH = Path(__file__).with_name("report_schema.json")
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # strict: JSON integers still count as numbers, but booleans and numeric strings do not
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+Ident = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")]
 
 
 class Conclusion(_Strict):
@@ -33,13 +37,13 @@ class Claim(_Strict):
     id: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,32}$")
     type: Literal["finding", "measurement", "negative"]
     text: str = Field(min_length=1, max_length=2000)
-    evidence: list[str] = Field(default_factory=list, max_length=200)
-    measurement_id: str | None = None
+    evidence: list[Ident] = Field(default_factory=list, max_length=50)
+    measurement_id: Ident | None = None
     scope: str | None = Field(None, max_length=200)
 
 
 class Report(_Strict):
-    task: str
+    task: Ident
     conclusion: Conclusion
     claims: list[Claim] = Field(default_factory=list, max_length=200)
     free_text: str = Field("", max_length=20000)
@@ -55,7 +59,7 @@ def validate_report(data: Any, *, expected_task: str) -> Report:
             parts.append(f"{loc}: {e['msg']}")
         raise ReportInvalid(
             "The report does not match the schema: " + "; ".join(parts) + ".",
-            hint="See slidetwin/core/report_schema.json for the expected structure.",
+            hint="The report schema is served at GET /api/report_schema.",
         ) from None
     if report.task != expected_task:
         raise ReportInvalid(
@@ -73,6 +77,26 @@ def export_schema() -> dict[str, Any]:
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["title"] = "SlideTwin report"
     return schema
+
+
+def inline_schema() -> dict[str, Any]:
+    """The report schema with every $ref expanded, for embedding in another document (OpenAPI)."""
+    schema = export_schema()
+    defs = schema.pop("$defs", {})
+    schema.pop("$schema", None)
+
+    def expand(node: Any) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                return expand(defs[ref.rsplit("/", 1)[1]])
+            return {k: expand(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [expand(v) for v in node]
+        return node
+
+    expanded: dict[str, Any] = expand(schema)
+    return expanded
 
 
 def write_schema(path: Path = SCHEMA_PATH) -> None:

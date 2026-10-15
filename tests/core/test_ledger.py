@@ -74,13 +74,15 @@ def test_time_budget(viewer: Profile) -> None:
         led.check(action)
 
 
-def test_view_budget(viewer: Profile) -> None:
+def test_view_budget_only_limits_new_views(viewer: Profile) -> None:
     led = viewer_ledger(viewer, max_views=1)
-    led.check("view")
+    led.check("view", serves_view=True)
     led.note_view()
     assert led.remaining() == {"virtual_s": None, "views": 0}
     with pytest.raises(BudgetExhausted, match="view budget"):
-        led.check("measure")
+        led.check("pan", serves_view=True)
+    led.check("measure")  # measuring what was already seen is still allowed
+    led.check("get_thumbnail")
     led.check("submit_report")
 
 

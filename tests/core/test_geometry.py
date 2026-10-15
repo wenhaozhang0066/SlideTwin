@@ -253,11 +253,34 @@ def test_distance_and_displacement() -> None:
 
 
 def test_thumbnail_size() -> None:
-    assert thumbnail_size((2000.0, 1000.0), 1024) == (1024, 512)
-    assert thumbnail_size((1000.0, 2000.0), 1024) == (512, 1024)
-    assert thumbnail_size((100000.0, 10.0), 1024) == (1024, 1)
+    assert thumbnail_size((2000.0, 1000.0), 1024, 0.25) == (1024, 512)
+    assert thumbnail_size((1000.0, 2000.0), 1024, 0.25) == (512, 1024)
+    assert thumbnail_size((100000.0, 10.0), 1024, 0.25) == (1024, 1)
     with pytest.raises(InvalidParameter):
-        thumbnail_size((0.0, 10.0), 1024)
+        thumbnail_size((0.0, 10.0), 1024, 0.25)
+
+
+def test_thumbnail_is_never_finer_than_the_scan() -> None:
+    # a slide only 500 x 250 px at 1 um/px: the thumbnail stays at the scan resolution
+    assert thumbnail_size((500.0, 250.0), 1024, 1.0) == (500, 250)
+    # rounding must not push one axis below the native pixel size
+    w, h = thumbnail_size((500.4, 250.6), 1024, 1.0)
+    assert 500.4 / w >= 1.0
+    assert 250.6 / h >= 1.0
+
+
+@given(
+    st.floats(1.0, 1e5),
+    st.floats(1.0, 1e5),
+    st.integers(16, 4096),
+    st.floats(0.05, 20.0),
+)
+def test_thumbnail_properties(w: float, h: float, long_side: int, native: float) -> None:
+    tw, th = thumbnail_size((w, h), long_side, native)
+    assert 1 <= max(tw, th) <= long_side
+    assert min(tw, th) >= 1
+    for extent, n in ((w, tw), (h, th)):
+        assert extent / n >= native * (1 - 1e-12) or n == 1
 
 
 def test_crop_scales_to_viewport_long_side() -> None:

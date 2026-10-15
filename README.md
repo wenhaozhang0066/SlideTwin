@@ -78,9 +78,12 @@ curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
 | crop (`unconstrained` only) | `POST /api/sessions/{id}/crop` |
 | submit_report | `POST /api/sessions/{id}/report` |
 | export_trajectory | `GET /api/sessions/{id}/trajectory` |
+| report schema | `GET /api/report_schema` |
 
 Settings come from environment variables: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_SLIDE_DIR`,
-`SLIDETWIN_LOG_DIR`, `SLIDETWIN_CACHE_DIR`, `SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`.
+`SLIDETWIN_LOG_DIR` (required; trajectories are written there as they happen), `SLIDETWIN_CACHE_DIR`,
+`SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`, `SLIDETWIN_SESSION_MAX_AGE_S`,
+`SLIDETWIN_MAX_BODY_BYTES`. The default viewport is 1280 x 1024 px (see docs/DECISIONS.md).
 
 ## Documentation
 

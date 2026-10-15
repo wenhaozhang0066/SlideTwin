@@ -1,4 +1,4 @@
-"""Map core errors to HTTP responses with one envelope: {"error": {code, message, hint}}."""
+"""Map core errors to HTTP responses with one envelope: {"error": {code, message, hint, ...}}."""
 
 from __future__ import annotations
 
@@ -29,20 +29,29 @@ STATUS = {
     "IMAGE_NOT_FOUND": 404,
     "SLIDE_NOT_FOUND": 404,
     "SLIDE_METADATA": 422,
+    "SLIDE_READ_ERROR": 500,
     "SLIDE_HASH_MISMATCH": 500,
     "CONFIG_ERROR": 500,
     "REPORT_INVALID": 422,
     "REPLAY_ERROR": 422,
+    "INTERNAL": 500,
 }
+RETRY_AFTER_S = "60"
 
 
-def error_response(status: int, body: dict[str, Any]) -> JSONResponse:
-    return JSONResponse(status_code=status, content={"error": body})
+def error_response(
+    status: int, body: dict[str, Any], headers: dict[str, str] | None = None
+) -> JSONResponse:
+    return JSONResponse(status_code=status, content={"error": body}, headers=headers)
 
 
 async def _slidetwin_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, SlideTwinError)
-    return error_response(STATUS.get(exc.code, 500), exc.to_dict())
+    status = STATUS.get(exc.code, 500)
+    if status >= 500:
+        log.error("%s on %s %s: %s", exc.code, request.method, request.url.path, exc.message)
+    headers = {"Retry-After": RETRY_AFTER_S} if exc.code == "TOO_MANY_SESSIONS" else None
+    return error_response(status, exc.to_dict(), headers)
 
 
 async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
@@ -66,14 +75,46 @@ async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
 
 async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StarletteHTTPException)
-    code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(exc.status_code, "HTTP_ERROR")
-    return error_response(exc.status_code, {"code": code, "message": str(exc.detail)})
+    headers = dict(exc.headers) if exc.headers else None
+    if exc.status_code == 405:
+        allowed = (headers or {}).get("Allow", "")
+        return error_response(
+            405,
+            {
+                "code": "METHOD_NOT_ALLOWED",
+                "message": f"{request.method} is not allowed on {request.url.path}; "
+                f"use {allowed or 'the method listed in /docs'}.",
+            },
+            headers,
+        )
+    if exc.status_code == 404:
+        return error_response(
+            404,
+            {
+                "code": "NOT_FOUND",
+                "message": f"There is no endpoint {request.url.path}.",
+                "hint": "See the API at /docs.",
+            },
+        )
+    if exc.status_code == 400:  # FastAPI could not decode the body (e.g. not UTF-8 JSON)
+        return error_response(
+            422,
+            {
+                "code": "INVALID_REQUEST",
+                "message": "The request body is not valid UTF-8 JSON.",
+                "hint": "Send a JSON object with content-type application/json.",
+            },
+        )
+    return error_response(
+        exc.status_code, {"code": "HTTP_ERROR", "message": str(exc.detail)}, headers
+    )
 
 
 async def _internal_error(request: Request, exc: Exception) -> JSONResponse:
     log.exception("unhandled error on %s %s", request.method, request.url.path)
     return error_response(
-        500, {"code": "INTERNAL", "message": "Internal error. The failed action was logged."}
+        500,
+        {"code": "INTERNAL", "message": "Internal error; the request was not completed."},
     )
 
 

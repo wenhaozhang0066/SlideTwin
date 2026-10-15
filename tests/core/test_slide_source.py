@@ -109,7 +109,7 @@ def test_to_rgb_layouts() -> None:
 def test_file_backends_read_the_pyramid(
     tiff_path: Path, levels: list[np.ndarray], backend: str
 ) -> None:
-    src = open_slide(tiff_path, backend=backend)
+    src = open_slide(tiff_path, backend=backend, name="syn")
     assert isinstance(src, TiffSlideSource if backend == "tiffslide" else OpenSlideSource)
     assert src.backend.startswith(backend)
     assert src.dimensions == (1024, 768)
@@ -128,25 +128,28 @@ def test_file_without_mpp_is_refused_unless_overridden(tmp_path: Path, backend: 
     tifffile.imwrite(
         path, np.full((256, 256, 3), 200, np.uint8), tile=(256, 256), photometric="rgb"
     )
-    with pytest.raises(SlideMetadataError):
-        open_slide(path, backend=backend)
-    src = open_slide(path, backend=backend, mpp_override=(0.5, 0.5))
+    with pytest.raises(SlideMetadataError) as err:
+        open_slide(path, backend=backend, name="slide_7")
+    assert "slide_7" in err.value.message
+    assert "nompp" not in err.value.message  # file names never reach messages
+    src = open_slide(path, backend=backend, mpp_override=(0.5, 0.5), name="slide_7")
     assert src.mpp == (0.5, 0.5)
     src.close()
 
 
 def test_open_slide_errors(tmp_path: Path, tiff_path: Path) -> None:
     with pytest.raises(SlideNotFound) as err:
-        open_slide(tmp_path / "missing.svs", name="slide_x")
+        open_slide(tmp_path / "tumor_001.svs", name="slide_x")
     assert "slide_x" in err.value.message
+    assert "tumor" not in err.value.message  # no file names (they may carry labels)
     assert str(tmp_path) not in err.value.message  # no internal paths in messages
     with pytest.raises(InvalidParameter):
-        open_slide(tiff_path, backend="bioformats")
+        open_slide(tiff_path, backend="bioformats", name="slide_x")
 
 
 @pytest.mark.testdata
 def test_cmu_slide_metadata(cmu_small_path: Path) -> None:
-    src = open_slide(cmu_small_path)
+    src = open_slide(cmu_small_path, name="cmu1_small")
     assert src.mpp == (0.499, 0.499)
     assert src.dimensions == (2220, 2967)
     assert len(src.level_dimensions) == 1

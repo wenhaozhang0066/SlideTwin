@@ -25,15 +25,17 @@
         },
         "evidence": {
           "items": {
+            "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
             "type": "string"
           },
-          "maxItems": 200,
+          "maxItems": 50,
           "title": "Evidence",
           "type": "array"
         },
         "measurement_id": {
           "anyOf": [
             {
+              "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
               "type": "string"
             },
             {
@@ -122,6 +124,7 @@
   "additionalProperties": false,
   "properties": {
     "task": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
       "title": "Task",
       "type": "string"
     },

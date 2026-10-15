@@ -127,7 +127,7 @@ def test_magnification_errors_are_specific_and_change_nothing(make_session: Sess
 def test_cmu_slide_refuses_40x(make_session: SessionFactory, cmu_small_path: Path) -> None:
     from slidetwin.core.slide_source import open_slide
 
-    s = make_session(source=open_slide(cmu_small_path))
+    s = make_session(source=open_slide(cmu_small_path, name="cmu1_small"))
     with pytest.raises(MagnificationUnavailable) as err:
         s.set_magnification(40)
     assert "native resolution is 0.50 um/px" in err.value.message
@@ -379,7 +379,11 @@ def test_view_budget(make_session: SessionFactory, viewer: Profile) -> None:
     with pytest.raises(BudgetExhausted):
         s.pan(0.1, 0)
     with pytest.raises(BudgetExhausted):
-        s.measure([0, 0], [1, 1])
+        s.view()
+    # the last view can still be measured and annotated, and the thumbnail is not a view
+    assert s.measure([0, 0], [1, 1]).observation is not None
+    assert s.annotate({"type": "point", "coordinates": [1, 1]}, "x").observation is not None
+    assert s.get_thumbnail().observation is not None
     assert s.get_state().state["budget_remaining"]["views"] == 0
     assert s.export_trajectory().text
     assert s.submit_report(EXAMPLE).observation is not None
@@ -444,19 +448,29 @@ def test_events_follow_spec_9(make_session: SessionFactory) -> None:
     assert ev["error"] is None
 
 
-@pytest.mark.parametrize("client", [{"x": object()}, {"x": "a" * 5000}, {"x": float("nan")}])
-def test_bad_client_metadata(make_session: SessionFactory, client: dict[str, Any]) -> None:
+@pytest.mark.parametrize(
+    "client", [{"x": object()}, {"x": "a" * 5000}, {"x": float("nan")}, ["not", "an", "object"]]
+)
+def test_bad_client_metadata_never_fails_the_action(
+    make_session: SessionFactory, client: Any
+) -> None:
     s = make_session()
-    with pytest.raises(InvalidParameter):
-        s.get_state(client=client)
-    assert events(s)[-1]["client"] is None
+    s.set_magnification(10, client=client)  # the action itself succeeds
+    logged = events(s)[-1]
+    assert logged["error"] is None
+    assert set(logged["client"]) == {"rejected"}
 
 
-def test_unserializable_params_are_logged_safely(make_session: SessionFactory) -> None:
+def test_rejected_params_are_logged_safely(make_session: SessionFactory) -> None:
     s = make_session()
     with pytest.raises(InvalidParameter):
         s.set_magnification(object())
-    assert "unserializable" in events(s)[-1]["params"]
+    assert events(s)[-1]["params"] == {"mag": "<object>"}
+    with pytest.raises(InvalidParameter):
+        s.pan("x" * 100_000, 0)
+    logged = events(s)[-1]["params"]
+    assert logged["truncated"] is True
+    assert len(json.dumps(logged)) < 200
 
 
 def test_log_file_matches_export(make_session: SessionFactory, tmp_path: Path) -> None:

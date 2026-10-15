@@ -1,21 +1,25 @@
 """Request and response models of the REST API (SPEC 7).
 
-Each action maps 1:1 to a `Session` method.
+Each action maps 1:1 to a `Session` method. Number fields are strict: JSON integers count as
+numbers; booleans and numeric strings do not, exactly as in the core.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, WithJsonSchema
 
-Finite = Annotated[float, Field(allow_inf_nan=False)]
-PointPx = tuple[Finite, Finite]
+from slidetwin.core.report import inline_schema
+
+Num = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+PointPx = Annotated[list[Num], Field(min_length=2, max_length=2)]
 ClientMeta = Annotated[
     dict[str, Any] | None,
     Field(
         description="Optional client metadata, e.g. {'think_ms': 1200}. Stored in the trajectory, "
-        "never on the virtual clock (max 4 KB)."
+        "never on the virtual clock, and never the reason an action fails (max 4 KB; larger or "
+        "invalid metadata is replaced by a note)."
     ),
 ]
 
@@ -27,11 +31,13 @@ class _Request(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    slide_id: str = Field(description="A slide id from GET /api/slides.")
-    actor: str = Field(description="'human:<alias>' or 'agent:<name>' (pseudonyms only).")
-    profile: str = Field("viewer", description="Rule profile, e.g. 'viewer' or 'unconstrained'.")
-    protocol: str = Field("sln_metastasis", description="Reading protocol id.")
-    viewport_px: tuple[int, int] | None = Field(
+    slide_id: Annotated[str, Field(strict=True, description="A slide id from GET /api/slides.")]
+    actor: Annotated[
+        str, Field(strict=True, description="'human:<alias>' or 'agent:<name>' (pseudonyms only).")
+    ]
+    profile: str = Field("viewer", strict=True, description="Rule profile: viewer, unconstrained.")
+    protocol: str = Field("sln_metastasis", strict=True, description="Reading protocol id.")
+    viewport_px: Annotated[list[StrictInt], Field(min_length=2, max_length=2)] | None = Field(
         None, description="Viewport [width, height] in px; the profile default if omitted."
     )
 
@@ -41,17 +47,17 @@ class EmptyRequest(_Request):
 
 
 class MagnificationRequest(_Request):
-    mag: Finite = Field(description="A preset magnification, e.g. 10.")
+    mag: Num = Field(description="A preset magnification, e.g. 10.")
 
 
 class PanRequest(_Request):
-    dx: Finite = Field(description="Move in viewport widths (0.5 = half a viewport).")
-    dy: Finite = Field(description="Move in viewport heights.")
+    dx: Num = Field(description="Move in viewport widths (0.5 = half a viewport).")
+    dy: Num = Field(description="Move in viewport heights.")
 
 
 class MoveToRequest(_Request):
-    x_um: Finite = Field(description="New centre x in um from the level-0 top-left corner.")
-    y_um: Finite = Field(description="New centre y in um.")
+    x_um: Num = Field(description="New centre x in um from the level-0 top-left corner.")
+    y_um: Num = Field(description="New centre y in um.")
 
 
 class MeasureRequest(_Request):
@@ -64,19 +70,22 @@ class AnnotateRequest(_Request):
         description='{"type": "point", "coordinates": [x, y]} or '
         '{"type": "polygon", "coordinates": [[x, y], ...]} in current-view pixels.'
     )
-    label: str
-    note: str = ""
+    label: str = Field(strict=True)
+    note: str = Field("", strict=True)
 
 
 class CropRequest(_Request):
-    x_um: Finite
-    y_um: Finite
-    w_um: Finite
-    h_um: Finite
+    x_um: Num
+    y_um: Num
+    w_um: Num
+    h_um: Num
 
 
 class ReportRequest(_Request):
-    report: dict[str, Any] = Field(description="See slidetwin/core/report_schema.json.")
+    # Documented with the full report schema; validated (and logged when invalid) by the core.
+    report: Annotated[dict[str, Any], WithJsonSchema(inline_schema())] = Field(
+        description="The structured report (SPEC 5.3). Also served at GET /api/report_schema."
+    )
 
 
 # --- responses -------------------------------------------------------------------------------
@@ -207,7 +216,6 @@ class SlideListItem(BaseModel):
     id: str
     license: str | None
     attribution: str | None
-    source_url: str | None
 
 
 class SlideList(BaseModel):
@@ -226,6 +234,9 @@ class ErrorBody(BaseModel):
     code: str
     message: str
     hint: str | None = None
+    seq: int | None = Field(None, description="Log position of a failed session action.")
+    cost_s: float | None = Field(None, description="Always 0 for a failed action.")
+    elapsed_s: float | None = Field(None, description="Virtual time used so far.")
     details: list[dict[str, Any]] | None = None
 
 

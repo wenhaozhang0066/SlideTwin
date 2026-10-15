@@ -29,6 +29,7 @@ from slidetwin.api.schemas import (
     SlideList,
 )
 from slidetwin.core.manager import SessionManager
+from slidetwin.core.report import export_schema
 from slidetwin.core.session import ActionResult, Session, ThumbnailRecord, ViewRecord
 
 router = APIRouter(prefix="/api")
@@ -46,10 +47,16 @@ SessionId = Annotated[
 IncludeImage = Annotated[
     bool, Query(description="Embed the JPEG as base64; false returns only its URL.")
 ]
-ERRORS: dict[int | str, dict[str, Any]] = {
-    code: {"model": ErrorOut} for code in (400, 403, 404, 409, 413, 422, 503)
-}
-JPEG = {200: {"content": {"image/jpeg": {}}, "description": "JPEG image"}, **ERRORS}
+
+
+def _errors(*codes: int) -> dict[int | str, dict[str, Any]]:
+    return {code: {"model": ErrorOut} for code in (*codes, 422, 500)}
+
+
+ACTION_ERRORS = _errors(400, 403, 404, 409, 413)
+READ_ERRORS = _errors(404)
+CREATE_ERRORS = _errors(400, 404, 413, 503)
+JPEG = {200: {"content": {"image/jpeg": {}}, "description": "JPEG image"}, **READ_ERRORS}
 
 
 def image_url(session_id: str, image_id: str) -> str:
@@ -84,30 +91,26 @@ def _client(body: Any) -> dict[str, Any] | None:
 
 @router.get("/slides", response_model=SlideList, tags=["catalogue"])
 def list_slides(m: Manager) -> dict[str, Any]:
-    """Slides that can be opened. Public metadata only: no labels, no images."""
-    items = []
-    for slide_id in m.registry.ids():
-        e = m.registry.entry(slide_id)
-        items.append(
-            {
-                "id": slide_id,
-                "license": e.license if e else None,
-                "attribution": e.attribution if e else None,
-                "source_url": e.source_url if e else None,
-            }
-        )
-    return {"slides": items}
+    """Slides that can be opened: id, license, attribution. No labels, file names or images."""
+    return {"slides": m.catalogue()}
 
 
 @router.get("/profiles", response_model=ProfileList, tags=["catalogue"])
 def list_profiles(m: Manager) -> dict[str, Any]:
     """Rule profiles: presets, costs, budgets. Everyone sees the rules they are timed by."""
-    return {"profiles": [p.model_dump(mode="json") for p in m.configs.profiles.values()]}
+    return {"profiles": m.profiles()}
 
 
 @router.get("/protocols", response_model=ProtocolList, tags=["catalogue"])
 def list_protocols(m: Manager) -> dict[str, Any]:
-    return {"protocols": [p.task_description() for p in m.configs.protocols.values()]}
+    """Reading protocols with every rule and its review status."""
+    return {"protocols": m.protocols()}
+
+
+@router.get("/report_schema", tags=["catalogue"])
+def report_schema() -> dict[str, Any]:
+    """JSON Schema of the report accepted by POST /api/sessions/{id}/report (SPEC 5.3)."""
+    return export_schema()
 
 
 # --- sessions ------------------------------------------------------------------------------------
@@ -117,7 +120,7 @@ def list_protocols(m: Manager) -> dict[str, Any]:
     "/sessions",
     status_code=201,
     response_model=CreateSessionResponse,
-    responses=ERRORS,
+    responses=CREATE_ERRORS,
     tags=["sessions"],
 )
 def create_session(
@@ -133,29 +136,27 @@ def create_session(
         viewport_px=body.viewport_px,
     )
     out = respond(s, s.initial, include_image)
-    out["slide"] = s.slide_info()
-    out["task"] = s.task()
-    out["rules"] = s.profile.model_dump(mode="json")
+    out.update(s.opening())
     return out
 
 
 @router.get(
     "/sessions/{session_id}/state",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=READ_ERRORS,
     tags=["sessions"],
 )
 def get_state(session_id: SessionId, m: Manager) -> dict[str, Any]:
     """Current position, magnification, field of view, elapsed virtual time and budget. No pixels;
-    no cost."""
-    s = m.get(session_id)
+    no cost. Reading the state does not keep an idle session alive."""
+    s = m.get(session_id, touch=False)
     return respond(s, s.get_state(), False)
 
 
 @router.post(
     "/sessions/{session_id}/thumbnail",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def get_thumbnail(
@@ -172,7 +173,7 @@ def get_thumbnail(
 @router.post(
     "/sessions/{session_id}/magnification",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def set_magnification(
@@ -189,7 +190,7 @@ def set_magnification(
 @router.post(
     "/sessions/{session_id}/pan",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def pan(
@@ -203,7 +204,7 @@ def pan(
 @router.post(
     "/sessions/{session_id}/move_to",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def move_to(
@@ -217,7 +218,7 @@ def move_to(
 @router.post(
     "/sessions/{session_id}/view",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def view(
@@ -234,7 +235,7 @@ def view(
 @router.post(
     "/sessions/{session_id}/measure",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def measure(session_id: SessionId, body: MeasureRequest, m: Manager) -> dict[str, Any]:
@@ -246,7 +247,7 @@ def measure(session_id: SessionId, body: MeasureRequest, m: Manager) -> dict[str
 @router.post(
     "/sessions/{session_id}/annotations",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def annotate(session_id: SessionId, body: AnnotateRequest, m: Manager) -> dict[str, Any]:
@@ -259,7 +260,7 @@ def annotate(session_id: SessionId, body: AnnotateRequest, m: Manager) -> dict[s
 @router.post(
     "/sessions/{session_id}/crop",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def crop(
@@ -274,7 +275,7 @@ def crop(
 @router.post(
     "/sessions/{session_id}/report",
     response_model=ActionResponse,
-    responses=ERRORS,
+    responses=ACTION_ERRORS,
     tags=["sessions"],
 )
 def submit_report(session_id: SessionId, body: ReportRequest, m: Manager) -> dict[str, Any]:
@@ -286,7 +287,7 @@ def submit_report(session_id: SessionId, body: ReportRequest, m: Manager) -> dic
 @router.get(
     "/sessions/{session_id}/trajectory",
     response_class=Response,
-    responses={200: {"content": {"application/x-ndjson": {}}}, **ERRORS},
+    responses={200: {"content": {"application/x-ndjson": {}}}, **READ_ERRORS},
     tags=["sessions"],
 )
 def export_trajectory(session_id: SessionId, m: Manager) -> Response:
@@ -314,7 +315,7 @@ def view_image(
     m: Manager,
 ) -> Response:
     """JPEG of a view or crop that this session has already been served (and logged)."""
-    s = m.get(session_id)
+    s = m.get(session_id, touch=False)
     return Response(
         s.get_image(view_id),
         media_type="image/jpeg",
@@ -334,7 +335,7 @@ def thumbnail_image(
     m: Manager,
 ) -> Response:
     """JPEG of a thumbnail that this session has already been served (and logged)."""
-    s = m.get(session_id)
+    s = m.get(session_id, touch=False)
     return Response(
         s.get_image(thumb_id),
         media_type="image/jpeg",

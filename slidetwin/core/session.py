@@ -1,21 +1,28 @@
 """Reading session: the state machine behind every adapter (SPEC 4, 7, 8, 9).
 
-Every action runs through `_execute`, which:
-1. rejects actions on a closed session and actions over budget,
-2. validates and computes the result without touching state,
-3. charges the ledger, then applies the state change and assigns ids,
-4. appends one event to the trajectory (failed actions are logged with their error and zero cost).
+Every action runs through `_execute` in two phases:
+
+1. Plan. Check that the session is open and within budget, validate the input and compute the
+   result (render, measure) without touching any state. A failure here changes nothing and is
+   logged as a failed event at zero cost.
+2. Commit. Charge the ledger, store the image, apply the state change and append the event. If any
+   step fails, every change is rolled back and the failure is logged as INTERNAL. A session that
+   can no longer write its log stops accepting actions, so no pixel is ever served unlogged.
+
+Successful events log their parameters in canonical JSON (the values the action actually used), so
+they replay exactly. Failed events log a bounded, JSON-safe copy of the raw input.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +31,7 @@ from slidetwin.core.config import Profile, Protocol, content_hash
 from slidetwin.core.errors import (
     ActionNotAllowed,
     ImageNotFound,
+    InternalError,
     InvalidParameter,
     MagnificationNotPreset,
     MagnificationUnavailable,
@@ -50,7 +58,7 @@ from slidetwin.core.geometry import (
     view_px_to_um,
     viewport_bbox,
 )
-from slidetwin.core.images import ImageStore, encode_jpeg, pixel_sha256, sha256_bytes
+from slidetwin.core.images import ImageStore, encode_jpeg, is_image_id, pixel_sha256, sha256_bytes
 from slidetwin.core.ledger import Ledger, to_s
 from slidetwin.core.render import render_region
 from slidetwin.core.report import validate_report
@@ -58,11 +66,14 @@ from slidetwin.core.slide_source import RGB, SlideSource, native_mpp, slide_size
 from slidetwin.core.trajectory import SCHEMA_VERSION, TrajectoryWriter
 from slidetwin.version import app_version
 
-ACTOR_RE = re.compile(r"^(human|agent):[A-Za-z0-9._-]{1,64}$")
+ACTOR_RE = re.compile(r"(human|agent):[A-Za-z0-9._-]{1,64}")
 VIEWPORT_MIN, VIEWPORT_MAX = 64, 4096
 CLIENT_META_MAX_BYTES = 4096
+RAW_PARAMS_MAX_BYTES = 16384
 AFTER_CLOSE = frozenset({"get_state", "export_trajectory"})
 LABEL_MAX, NOTE_MAX, POLYGON_MAX = 64, 1000, 1000
+VIEW_ACTIONS = frozenset({"create_session", "view", "crop"})
+MOVE_ACTIONS = frozenset({"set_magnification", "pan", "move_to"})
 
 
 # --- observation records -------------------------------------------------------------------
@@ -191,7 +202,18 @@ class ReportReceipt:
 
 
 Observation = ViewRecord | ThumbnailRecord | MeasurementRecord | AnnotationRecord | ReportReceipt
-Finalize = Callable[[int], tuple[Observation | None, bytes | None]]
+Apply = Callable[[int], tuple[Observation | None, bytes | None]]
+
+
+@dataclass(frozen=True)
+class _Plan:
+    cost_us: int
+    params: dict[str, Any]  # canonical JSON form of the input the action used
+    apply: Apply  # commits the state change; receives the event seq
+
+
+def _nothing(seq: int) -> tuple[Observation | None, bytes | None]:
+    return None, None
 
 
 @dataclass(frozen=True)
@@ -220,41 +242,109 @@ class ActionResult:
 # --- input checks --------------------------------------------------------------------------
 
 
+def _short(value: Any, limit: int = 60) -> str:
+    """Bounded repr for error messages (inputs are echoed, never in full)."""
+    try:
+        text = repr(value)
+    except Exception:
+        text = f"<{type(value).__name__}>"
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 def _number(value: Any, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
-        raise InvalidParameter(f"{name} must be a finite number, got {value!r}.")
-    return float(value)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise InvalidParameter(f"{name} must be a finite number, got {_short(value)}.")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise InvalidParameter(f"{name} is out of range.") from None
+    if not math.isfinite(number):
+        raise InvalidParameter(f"{name} must be a finite number, got {_short(value)}.")
+    return number
 
 
 def _point(value: Any, name: str) -> Point:
-    if not isinstance(value, Sequence) or isinstance(value, str) or len(value) != 2:
-        raise InvalidParameter(f"{name} must be [x, y] in view pixels, got {value!r}.")
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise InvalidParameter(f"{name} must be [x, y] in view pixels, got {_short(value)}.")
     return (_number(value[0], f"{name}[0]"), _number(value[1], f"{name}[1]"))
 
 
-def _client_meta(client: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    if client is None:
-        return None
-    try:
-        encoded = json.dumps(dict(client), allow_nan=False)
-    except (TypeError, ValueError):
-        raise InvalidParameter("client metadata must be a JSON object.") from None
-    if len(encoded.encode()) > CLIENT_META_MAX_BYTES:
-        raise InvalidParameter(f"client metadata is larger than {CLIENT_META_MAX_BYTES} bytes.")
-    out: dict[str, Any] = json.loads(encoded)
+def _jsonable(value: Any, depth: int = 0) -> Any:
+    """A JSON-safe stand-in for any input, for the record of a failed action."""
+    if depth > 20:
+        return "<nested>"
+    if value is None or isinstance(value, bool | str):
+        return value
+    if isinstance(value, int):
+        return value if abs(value) < 2**63 else "<int out of range>"
+    if isinstance(value, float):
+        return value if math.isfinite(value) else repr(value)
+    if isinstance(value, Mapping):
+        return {str(k)[:64]: _jsonable(v, depth + 1) for k, v in list(value.items())[:1000]}
+    if isinstance(value, list | tuple):
+        return [_jsonable(v, depth + 1) for v in value[:1000]]
+    return f"<{type(value).__name__}>"
+
+
+def _bounded(raw: dict[str, Any]) -> dict[str, Any]:
+    safe = _jsonable(raw)
+    text = json.dumps(safe, ensure_ascii=True, allow_nan=False)
+    if len(text) > RAW_PARAMS_MAX_BYTES:
+        return {
+            "truncated": True,
+            "bytes": len(text),
+            "sha256": hashlib.sha256(text.encode()).hexdigest(),
+        }
+    out: dict[str, Any] = safe
     return out
 
 
-def _loggable(params: dict[str, Any]) -> dict[str, Any]:
+def _client_meta(client: Any) -> dict[str, Any] | None:
+    """Client metadata never decides an action: invalid metadata is replaced by a note."""
+    if client is None:
+        return None
+    if not isinstance(client, Mapping):
+        return {"rejected": "client metadata must be a JSON object"}
     try:
-        out: dict[str, Any] = json.loads(json.dumps(params, allow_nan=False))
-    except (TypeError, ValueError):
-        return {"unserializable": repr(params)[:500]}
+        text = json.dumps(dict(client), ensure_ascii=True, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return {"rejected": "client metadata is not valid JSON"}
+    if len(text) > CLIENT_META_MAX_BYTES:
+        return {"rejected": f"client metadata is larger than {CLIENT_META_MAX_BYTES} bytes"}
+    out: dict[str, Any] = json.loads(text)
     return out
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def check_actor(actor: Any) -> str:
+    if not isinstance(actor, str) or not ACTOR_RE.fullmatch(actor):
+        raise InvalidParameter(
+            f"actor must look like 'human:<alias>' or 'agent:<name>', got {_short(actor)}.",
+            hint="Use 1-64 characters from A-Z, a-z, 0-9, '.', '_' and '-' after the colon.",
+        )
+    return actor
+
+
+def check_viewport(viewport_px: Any, default: tuple[int, int]) -> Size:
+    if viewport_px is None:
+        return default
+    ok = (
+        isinstance(viewport_px, list | tuple)
+        and len(viewport_px) == 2
+        and all(
+            isinstance(v, int) and not isinstance(v, bool) and VIEWPORT_MIN <= v <= VIEWPORT_MAX
+            for v in viewport_px
+        )
+    )
+    if not ok:
+        raise InvalidParameter(
+            f"viewport_px must be [width, height] with integers {VIEWPORT_MIN}-{VIEWPORT_MAX}, "
+            f"got {_short(viewport_px)}."
+        )
+    return (viewport_px[0], viewport_px[1])
 
 
 # --- session -------------------------------------------------------------------------------
@@ -277,18 +367,12 @@ class Session:
         wall_ms: Callable[[], int] | None = None,
         now_utc: Callable[[], datetime] = _utc_now,
     ) -> None:
-        if not isinstance(actor, str) or not ACTOR_RE.match(actor):
-            raise InvalidParameter(
-                f"actor must look like 'human:<alias>' or 'agent:<name>', got {actor!r}.",
-                hint="Use 1-64 characters from A-Z, a-z, 0-9, '.', '_' and '-' after the colon.",
-            )
-        viewport = self._check_viewport(viewport_px, profile.viewport_default_px)
+        self.actor = check_actor(actor)
+        self.viewport_px: Size = check_viewport(viewport_px, profile.viewport_default_px)
         self.session_id = session_id
         self.slide_id = slide_id
-        self.actor = actor
         self.profile = profile
         self.protocol = protocol
-        self.viewport_px: Size = viewport
         self._source = source
         self._slide_sha256 = slide_sha256
         self._images = images
@@ -319,21 +403,21 @@ class Session:
         self._measurements: dict[str, MeasurementRecord] = {}
         self._annotations: dict[str, AnnotationRecord] = {}
         self._current_view: ViewRecord | None = None
-        self._closed = False
+        self._closed = False  # a report was submitted
+        self._terminated = False  # close() was called: no further actions at all
+        self._broken = False  # the log can no longer be written
         self.created_utc = now_utc().isoformat(timespec="milliseconds").replace("+00:00", "Z")
         self._writer = TrajectoryWriter(log_path)
         self._writer.write(self._header())
+        params = {
+            "slide_id": slide_id,
+            "profile": profile.id,
+            "protocol": protocol.id,
+            "viewport_px": list(self.viewport_px),
+            "actor": self.actor,
+        }
         self.initial = self._execute(
-            "create_session",
-            {
-                "slide_id": slide_id,
-                "profile": profile.id,
-                "protocol": protocol.id,
-                "viewport_px": list(viewport),
-                "actor": actor,
-            },
-            None,
-            self._op_initial,
+            "create_session", params, None, lambda: self._op_initial(params)
         )
 
     # --- read-only views of the session ---------------------------------------------------
@@ -343,21 +427,29 @@ class Session:
         return self._closed
 
     @property
+    def terminated(self) -> bool:
+        return self._terminated
+
+    @property
     def history(self) -> list[dict[str, Any]]:
         """All trajectory records written so far (header first)."""
-        return self._writer.records
+        with self._lock:
+            return list(self._writer.records)
 
     @property
     def views(self) -> Mapping[str, ViewRecord]:
-        return dict(self._views)
+        with self._lock:
+            return dict(self._views)
 
     @property
     def measurements(self) -> Mapping[str, MeasurementRecord]:
-        return dict(self._measurements)
+        with self._lock:
+            return dict(self._measurements)
 
     @property
     def annotations(self) -> Mapping[str, AnnotationRecord]:
-        return dict(self._annotations)
+        with self._lock:
+            return dict(self._annotations)
 
     @property
     def available_mags(self) -> tuple[float, ...]:
@@ -376,114 +468,117 @@ class Session:
     def task(self) -> dict[str, Any]:
         return self.protocol.task_description()
 
+    def rules(self) -> dict[str, Any]:
+        out: dict[str, Any] = self.profile.model_dump(mode="json")
+        return out
+
+    def opening(self) -> dict[str, Any]:
+        """What create_session returns besides the first view: the slide geometry, the task
+        (protocol) and the rules (profile). Every adapter serves this same payload."""
+        return {"slide": self.slide_info(), "task": self.task(), "rules": self.rules()}
+
     def state_dict(self) -> dict[str, Any]:
-        mpp = self._mpp(self._mag)
-        bbox = viewport_bbox(self._center, self.viewport_px, mpp)
-        return {
-            "session_id": self.session_id,
-            "slide_id": self.slide_id,
-            "profile": self.profile.id,
-            "center_um": list(self._center),
-            "mag": self._mag,
-            "mpp": mpp,
-            "bbox_um": bbox.to_list(),
-            "viewport_px": list(self.viewport_px),
-            "fov_um": list(self._fov(self._mag)),
-            "elapsed_s": self._ledger.elapsed_s,
-            "views_served": self._ledger.views_served,
-            "current_view_id": None if self._current_view is None else self._current_view.view_id,
-            "closed": self._closed,
-            "budget_remaining": self._ledger.remaining(),
-        }
+        with self._lock:
+            return self._state()
 
     def get_image(self, image_id: str) -> bytes:
         """JPEG of a view, crop or thumbnail already served (and logged) in this session."""
-        if image_id not in self._views and image_id not in self._thumbs:
-            raise ImageNotFound(f"Image '{image_id}' was not served in this session.")
-        return self._images.get(image_id)
+        with self._lock:
+            if self._terminated:
+                raise SessionClosed("This session has ended.")
+            if not is_image_id(image_id) or (
+                image_id not in self._views and image_id not in self._thumbs
+            ):
+                raise ImageNotFound(f"Image {_short(image_id, 40)} was not served in this session.")
+            return self._images.get(image_id)
 
     def close(self) -> None:
-        self._writer.close()
+        """End the session for good: later actions are refused and the log file is closed.
+
+        Waits for an action in progress, so that action is fully logged first.
+        """
+        with self._lock:
+            self._terminated = True
+            self._writer.close()
+
+    def discard_images(self) -> None:
+        """Delete the served images of an ended session (its trajectory stays)."""
+        with self._lock:
+            if self._terminated:
+                self._images.discard()
 
     # --- actions -------------------------------------------------------------------------------
 
-    def get_state(self, *, client: Mapping[str, Any] | None = None) -> ActionResult:
-        return self._execute("get_state", {}, client, lambda: (0, lambda seq: (None, None)))
+    def get_state(self, *, client: Any = None) -> ActionResult:
+        return self._execute("get_state", {}, client, lambda: _Plan(0, {}, _nothing))
 
-    def set_magnification(
-        self, mag: Any, *, client: Mapping[str, Any] | None = None
-    ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
-            m = self._match_preset(mag)
-            center = clamp_center(self._center, self._fov(m), self._slide_um)
-            return self._move(center, m, self._ledger.cost_us("set_magnification"))
+    def set_magnification(self, mag: Any, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
+            value = _number(mag, "mag")
+            preset = self._match_preset(value)
+            center = clamp_center(self._center, self._fov(preset), self._slide_um)
+            return self._move(
+                "set_magnification", {"mag": value}, center, preset, extra_cost_viewports=None
+            )
 
         return self._execute("set_magnification", {"mag": mag}, client, op)
 
-    def pan(self, dx: Any, dy: Any, *, client: Mapping[str, Any] | None = None) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+    def pan(self, dx: Any, dy: Any, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
             fx, fy = _number(dx, "dx"), _number(dy, "dy")
             fov = self._fov(self._mag)
             target = (self._center[0] + fx * fov[0], self._center[1] + fy * fov[1])
             center = clamp_center(target, fov, self._slide_um)
             moved = displacement_in_viewports(self._center, center, fov)
-            return self._move(center, self._mag, self._ledger.cost_us("pan", viewports=moved))
+            return self._move("pan", {"dx": fx, "dy": fy}, center, self._mag, moved)
 
         return self._execute("pan", {"dx": dx, "dy": dy}, client, op)
 
-    def move_to(
-        self, x_um: Any, y_um: Any, *, client: Mapping[str, Any] | None = None
-    ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+    def move_to(self, x_um: Any, y_um: Any, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
             target = (_number(x_um, "x_um"), _number(y_um, "y_um"))
             center = clamp_center(target, self._fov(self._mag), self._slide_um)
-            return self._move(center, self._mag, self._ledger.cost_us("move_to"))
+            params = {"x_um": target[0], "y_um": target[1]}
+            return self._move("move_to", params, center, self._mag, None)
 
         return self._execute("move_to", {"x_um": x_um, "y_um": y_um}, client, op)
 
-    def view(self, *, client: Mapping[str, Any] | None = None) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+    def view(self, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
             pending = self._render(self._center, self._mag)
-            return self._ledger.cost_us("view"), self._finalize_view(pending)
+            return _Plan(self._ledger.cost_us("view"), {}, self._apply_view(pending))
 
         return self._execute("view", {}, client, op)
 
-    def get_thumbnail(self, *, client: Mapping[str, Any] | None = None) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+    def get_thumbnail(self, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
             rules = self.profile.thumbnail
             if not rules.allowed:
                 raise ActionNotAllowed(
                     f"The thumbnail is not available under the '{self.profile.id}' profile."
                 )
-            size = thumbnail_size(self._slide_um, rules.long_side_px)
+            size = thumbnail_size(self._slide_um, rules.long_side_px, self._native)
             whole = BBox(0.0, 0.0, self._slide_um[0], self._slide_um[1])
             arr = render_region(self._source, whole, size, fill_rgb=self.profile.image.fill_rgb)
             um_per_px = (self._slide_um[0] / size[0], self._slide_um[1] / size[1])
+            jpeg = self._encode(arr)
+            pixels, jpeg_hash = pixel_sha256(arr), sha256_bytes(jpeg)
 
-            def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+            def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 tid = self._next_id("t")
-                jpeg = self._encode(arr)
-                rec = ThumbnailRecord(
-                    tid, seq, size, um_per_px, pixel_sha256(arr), sha256_bytes(jpeg)
-                )
                 self._images.put(tid, jpeg)
+                rec = ThumbnailRecord(tid, seq, size, um_per_px, pixels, jpeg_hash)
                 self._thumbs[tid] = rec
                 return rec, jpeg
 
-            return self._ledger.cost_us("get_thumbnail"), fin
+            return _Plan(self._ledger.cost_us("get_thumbnail"), {}, apply)
 
         return self._execute("get_thumbnail", {}, client, op)
 
     def crop(
-        self,
-        x_um: Any,
-        y_um: Any,
-        w_um: Any,
-        h_um: Any,
-        *,
-        client: Mapping[str, Any] | None = None,
+        self, x_um: Any, y_um: Any, w_um: Any, h_um: Any, *, client: Any = None
     ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+        def op() -> _Plan:
             if not self.profile.crop.allowed:
                 raise ActionNotAllowed(
                     f"crop is not available under the '{self.profile.id}' profile.",
@@ -493,28 +588,31 @@ class Session:
             w, h = _number(w_um, "w_um"), _number(h_um, "h_um")
             if w <= 0 or h <= 0:
                 raise InvalidParameter(f"Crop width and height must be positive, got {w} x {h} um.")
+            try:
+                requested = BBox(x, y, x + w, y + h)
+            except InvalidParameter:
+                raise InvalidParameter("Crop rectangle is out of range.") from None
             bbox, size, mpp = crop_geometry(
-                BBox(x, y, x + w, y + h), self._slide_um, max(self.viewport_px), self._native
+                requested, self._slide_um, max(self.viewport_px), self._native
             )
             arr = render_region(self._source, bbox, size, fill_rgb=self.profile.image.fill_rgb)
             mag = mag_for_mpp(mpp, self.profile.mpp_ref_40x)
             pending = (arr, bbox, mpp, mag, bbox.center)
-            return self._ledger.cost_us("crop"), self._finalize_view(pending, kind="crop")
+            params = {"x_um": x, "y_um": y, "w_um": w, "h_um": h}
+            return _Plan(self._ledger.cost_us("crop"), params, self._apply_view(pending, "crop"))
 
         params = {"x_um": x_um, "y_um": y_um, "w_um": w_um, "h_um": h_um}
         return self._execute("crop", params, client, op)
 
-    def measure(
-        self, p1_px: Any, p2_px: Any, *, client: Mapping[str, Any] | None = None
-    ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+    def measure(self, p1_px: Any, p2_px: Any, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
             view = self._require_view("measure")
             p1 = self._inside(_point(p1_px, "p1_px"), view)
             p2 = self._inside(_point(p2_px, "p2_px"), view)
             u1 = view_px_to_um(p1, view.bbox_um, view.mpp)
             u2 = view_px_to_um(p2, view.bbox_um, view.mpp)
 
-            def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+            def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 mid = self._next_id("m")
                 rec = MeasurementRecord(
                     mid, seq, view.view_id, p1, p2, u1, u2, distance(u1, u2), distance(p1, p2)
@@ -522,19 +620,15 @@ class Session:
                 self._measurements[mid] = rec
                 return rec, None
 
-            return self._ledger.cost_us("measure"), fin
+            params = {"p1_px": list(p1), "p2_px": list(p2)}
+            return _Plan(self._ledger.cost_us("measure"), params, apply)
 
         return self._execute("measure", {"p1_px": p1_px, "p2_px": p2_px}, client, op)
 
     def annotate(
-        self,
-        geometry: Any,
-        label: Any,
-        note: Any = "",
-        *,
-        client: Mapping[str, Any] | None = None,
+        self, geometry: Any, label: Any, note: Any = "", *, client: Any = None
     ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
+        def op() -> _Plan:
             view = self._require_view("annotate")
             gtype, points = self._parse_geometry(geometry, view)
             if not isinstance(label, str) or not 1 <= len(label) <= LABEL_MAX:
@@ -543,7 +637,7 @@ class Session:
                 raise InvalidParameter(f"note must be text of at most {NOTE_MAX} characters.")
             coords_um = tuple(view_px_to_um(p, view.bbox_um, view.mpp) for p in points)
 
-            def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+            def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 aid = self._next_id("a")
                 rec = AnnotationRecord(
                     aid, seq, view.view_id, gtype, points, coords_um, label, note
@@ -551,18 +645,22 @@ class Session:
                 self._annotations[aid] = rec
                 return rec, None
 
-            return self._ledger.cost_us("annotate"), fin
+            coords: Any = list(points[0]) if gtype == "point" else [list(p) for p in points]
+            params = {
+                "geometry": {"type": gtype, "coordinates": coords},
+                "label": label,
+                "note": note,
+            }
+            return _Plan(self._ledger.cost_us("annotate"), params, apply)
 
-        params = {"geometry": geometry, "label": label, "note": note}
-        return self._execute("annotate", params, client, op)
+        raw = {"geometry": geometry, "label": label, "note": note}
+        return self._execute("annotate", raw, client, op)
 
-    def submit_report(
-        self, report: Any, *, client: Mapping[str, Any] | None = None
-    ) -> ActionResult:
-        def op() -> tuple[int, Finalize]:
-            validate_report(report, expected_task=self.protocol.id)
+    def submit_report(self, report: Any, *, client: Any = None) -> ActionResult:
+        def op() -> _Plan:
+            validated = validate_report(report, expected_task=self.protocol.id)
 
-            def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+            def apply(seq: int) -> tuple[Observation | None, bytes | None]:
                 self._closed = True
                 receipt = ReportReceipt(
                     seq=seq,
@@ -573,64 +671,137 @@ class Session:
                 )
                 return receipt, None
 
-            return 0, fin
+            return _Plan(0, {"report": validated.model_dump(mode="json")}, apply)
 
         return self._execute("submit_report", {"report": report}, client, op)
 
-    def export_trajectory(self, *, client: Mapping[str, Any] | None = None) -> ActionResult:
-        result = self._execute(
-            "export_trajectory", {}, client, lambda: (0, lambda seq: (None, None))
-        )
-        return ActionResult(
-            seq=result.seq,
-            action=result.action,
-            cost_s=result.cost_s,
-            elapsed_s=result.elapsed_s,
-            state=result.state,
-            text=self._writer.text(),
-        )
+    def export_trajectory(self, *, client: Any = None) -> ActionResult:
+        with self._lock:
+            result = self._execute("export_trajectory", {}, client, lambda: _Plan(0, {}, _nothing))
+            return replace(result, text=self._writer.text())
 
     # --- machinery -----------------------------------------------------------------------------
 
+    def _serves_view(self, action: str) -> bool:
+        return action in VIEW_ACTIONS or (action in MOVE_ACTIONS and self.profile.auto_view)
+
     def _execute(
-        self,
-        action: str,
-        params: dict[str, Any],
-        client: Mapping[str, Any] | None,
-        op: Callable[[], tuple[int, Finalize]],
+        self, action: str, raw: dict[str, Any], client: Any, op: Callable[[], _Plan]
     ) -> ActionResult:
         with self._lock:
+            if self._terminated:
+                raise SessionClosed(
+                    "This session has ended (it expired or the server stopped it).",
+                    hint="Start a new session; this session's trajectory can still be downloaded.",
+                )
+            if self._broken:
+                raise InternalError(
+                    "This session stopped because its log could not be written.",
+                    hint="Start a new session.",
+                )
             t_wall = self._wall_ms()
             seq = self._seq + 1
-            client_meta: dict[str, Any] | None = None
+            meta = _client_meta(client)
             try:
-                client_meta = _client_meta(client)
                 if self._closed and action not in AFTER_CLOSE:
                     raise SessionClosed(
                         "This session is closed because a report was submitted.",
                         hint="Start a new session. get_state and export_trajectory still work.",
                     )
-                self._ledger.check(action)
-                cost_us, finalize = op()
+                self._ledger.check(action, serves_view=self._serves_view(action))
+                plan = op()
             except SlideTwinError as err:
-                self._seq = seq
-                self._log(seq, action, params, t_wall, 0, None, err.to_dict(), client_meta)
+                self._record_failure(seq, action, _bounded(raw), t_wall, err, meta)
                 raise
+            except Exception as err:
+                internal = InternalError("The action failed unexpectedly and was not applied.")
+                self._record_failure(seq, action, _bounded(raw), t_wall, internal, meta)
+                raise internal from err
+            snapshot = self._snapshot()
+            try:
+                self._ledger.charge(plan.cost_us)
+                observation, image = plan.apply(seq)
+                self._writer.write(
+                    self._event(
+                        seq, action, plan.params, t_wall, plan.cost_us, observation, None, meta
+                    )
+                )
+            except Exception as err:
+                self._restore(snapshot)
+                internal = InternalError("The action could not be recorded and was not applied.")
+                self._record_failure(seq, action, plan.params, t_wall, internal, meta)
+                raise internal from err
             self._seq = seq
-            self._ledger.charge(cost_us)
-            observation, image = finalize(seq)
-            self._log(seq, action, params, t_wall, cost_us, observation, None, client_meta)
             return ActionResult(
                 seq=seq,
                 action=action,
-                cost_s=to_s(cost_us),
+                cost_s=to_s(plan.cost_us),
                 elapsed_s=self._ledger.elapsed_s,
-                state=self.state_dict(),
+                state=self._state(),
                 observation=observation,
                 image=image,
             )
 
-    def _log(
+    def _record_failure(
+        self,
+        seq: int,
+        action: str,
+        params: dict[str, Any],
+        t_wall: int,
+        err: SlideTwinError,
+        meta: dict[str, Any] | None,
+    ) -> None:
+        """Log a failed action at zero cost and tell the caller where it sits in the log. If even
+        that cannot be written, stop the session: it could no longer keep its log complete."""
+        try:
+            self._writer.write(
+                self._event(seq, action, params, t_wall, 0, None, err.to_dict(), meta)
+            )
+        except Exception:
+            self._broken = True
+            return
+        self._seq = seq
+        err.context = {"seq": seq, "cost_s": 0.0, "elapsed_s": self._ledger.elapsed_s}
+
+    def _snapshot(self) -> tuple[Any, ...]:
+        return (
+            self._center,
+            self._mag,
+            self._current_view,
+            self._closed,
+            dict(self._counters),
+            self._ledger.elapsed_us,
+            self._ledger.views_served,
+            set(self._views),
+            set(self._thumbs),
+            set(self._measurements),
+            set(self._annotations),
+        )
+
+    def _restore(self, snapshot: tuple[Any, ...]) -> None:
+        (
+            self._center,
+            self._mag,
+            self._current_view,
+            self._closed,
+            self._counters,
+            self._ledger.elapsed_us,
+            self._ledger.views_served,
+            views,
+            thumbs,
+            measurements,
+            annotations,
+        ) = snapshot
+        for table, keep in (
+            (self._views, views),
+            (self._thumbs, thumbs),
+            (self._measurements, measurements),
+            (self._annotations, annotations),
+        ):
+            for key in [k for k in table if k not in keep]:
+                del table[key]
+
+    def _event(
         self,
         seq: int,
         action: str,
@@ -638,31 +809,29 @@ class Session:
         t_wall: int,
         cost_us: int,
         observation: Observation | None,
-        error: dict[str, str] | None,
+        error: dict[str, Any] | None,
         client: dict[str, Any] | None,
-    ) -> None:
+    ) -> dict[str, Any]:
         mpp = self._mpp(self._mag)
-        self._writer.write(
-            {
-                "type": "event",
-                "seq": seq,
-                "action": action,
-                "params": _loggable(params),
-                "t_virtual_s": self._ledger.elapsed_s,
-                "t_wall_ms": t_wall,
-                "cost_s": to_s(cost_us),
-                "state_after": {
-                    "center_um": list(self._center),
-                    "mag": self._mag,
-                    "bbox_um": viewport_bbox(self._center, self.viewport_px, mpp).to_list(),
-                },
-                "view_id": observation.view_id if isinstance(observation, ViewRecord) else None,
-                "observation": None if observation is None else observation.to_dict(),
-                "rule_violations": [],
-                "error": error,
-                "client": client,
-            }
-        )
+        return {
+            "type": "event",
+            "seq": seq,
+            "action": action,
+            "params": params,
+            "t_virtual_s": self._ledger.elapsed_s,
+            "t_wall_ms": t_wall,
+            "cost_s": to_s(cost_us),
+            "state_after": {
+                "center_um": list(self._center),
+                "mag": self._mag,
+                "bbox_um": viewport_bbox(self._center, self.viewport_px, mpp).to_list(),
+            },
+            "view_id": observation.view_id if isinstance(observation, ViewRecord) else None,
+            "observation": None if observation is None else observation.to_dict(),
+            "rule_violations": [],
+            "error": error,
+            "client": client,
+        }
 
     def _header(self) -> dict[str, Any]:
         return {
@@ -693,20 +862,25 @@ class Session:
             "actor": self.actor,
         }
 
-    @staticmethod
-    def _check_viewport(viewport_px: Sequence[int] | None, default: tuple[int, int]) -> Size:
-        if viewport_px is None:
-            return default
-        vp = tuple(viewport_px)
-        if len(vp) != 2 or not all(
-            isinstance(v, int) and not isinstance(v, bool) and VIEWPORT_MIN <= v <= VIEWPORT_MAX
-            for v in vp
-        ):
-            raise InvalidParameter(
-                f"viewport_px must be [width, height] with integers {VIEWPORT_MIN}-{VIEWPORT_MAX}, "
-                f"got {viewport_px!r}."
-            )
-        return (vp[0], vp[1])
+    def _state(self) -> dict[str, Any]:
+        mpp = self._mpp(self._mag)
+        bbox = viewport_bbox(self._center, self.viewport_px, mpp)
+        return {
+            "session_id": self.session_id,
+            "slide_id": self.slide_id,
+            "profile": self.profile.id,
+            "center_um": list(self._center),
+            "mag": self._mag,
+            "mpp": mpp,
+            "bbox_um": bbox.to_list(),
+            "viewport_px": list(self.viewport_px),
+            "fov_um": list(self._fov(self._mag)),
+            "elapsed_s": self._ledger.elapsed_s,
+            "views_served": self._ledger.views_served,
+            "current_view_id": None if self._current_view is None else self._current_view.view_id,
+            "closed": self._closed,
+            "budget_remaining": self._ledger.remaining(),
+        }
 
     def _mpp(self, mag: float) -> float:
         return mpp_for_mag(mag, self.profile.mpp_ref_40x)
@@ -714,8 +888,7 @@ class Session:
     def _fov(self, mag: float) -> tuple[float, float]:
         return fov_um(self.viewport_px, self._mpp(mag))
 
-    def _match_preset(self, mag: Any) -> float:
-        value = _number(mag, "mag")
+    def _match_preset(self, value: float) -> float:
         available = ", ".join(format_mag(m) for m in self._mags)
         for preset in self.profile.magnifications:
             if math.isclose(preset, value, rel_tol=1e-9):
@@ -739,50 +912,51 @@ class Session:
         )
         return arr, bbox, mpp, mag, center
 
-    def _move(self, center: Point, mag: float, cost_us: int) -> tuple[int, Finalize]:
-        """A navigation step: render the new view if auto_view, then commit position on success."""
+    def _move(
+        self,
+        action: str,
+        params: dict[str, Any],
+        center: Point,
+        mag: float,
+        extra_cost_viewports: float | None,
+    ) -> _Plan:
+        """A navigation step: render the new view if auto_view, commit the position on success."""
+        cost = self._ledger.cost_us(action, viewports=extra_cost_viewports or 0.0)
         pending = self._render(center, mag) if self.profile.auto_view else None
+        view_apply = self._apply_view(pending) if pending is not None else None
 
-        def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+        def apply(seq: int) -> tuple[Observation | None, bytes | None]:
             self._center, self._mag = center, mag
-            if pending is None:
+            if view_apply is None:
                 self._current_view = None
                 return None, None
-            return self._finalize_view(pending)(seq)
+            return view_apply(seq)
 
-        return cost_us, fin
+        return _Plan(cost, params, apply)
 
-    def _finalize_view(
+    def _apply_view(
         self, pending: tuple[RGB, BBox, float, float, Point], kind: str = "view"
-    ) -> Finalize:
+    ) -> Apply:
+        """Encode and hash now (planning); assign the id, store and register on commit."""
         arr, bbox, mpp, mag, center = pending
+        jpeg = self._encode(arr)
+        pixels, jpeg_hash = pixel_sha256(arr), sha256_bytes(jpeg)
+        size = (int(arr.shape[1]), int(arr.shape[0]))
 
-        def fin(seq: int) -> tuple[Observation | None, bytes | None]:
+        def apply(seq: int) -> tuple[Observation | None, bytes | None]:
             vid = self._next_id("v")
-            jpeg = self._encode(arr)
-            rec = ViewRecord(
-                view_id=vid,
-                kind=kind,
-                seq=seq,
-                center_um=center,
-                mag=mag,
-                mpp=mpp,
-                bbox_um=bbox,
-                size_px=(int(arr.shape[1]), int(arr.shape[0])),
-                pixel_sha256=pixel_sha256(arr),
-                jpeg_sha256=sha256_bytes(jpeg),
-            )
             self._images.put(vid, jpeg)
+            rec = ViewRecord(vid, kind, seq, center, mag, mpp, bbox, size, pixels, jpeg_hash)
             self._views[vid] = rec
             self._current_view = rec
             self._ledger.note_view()
             return rec, jpeg
 
-        return fin
+        return apply
 
-    def _op_initial(self) -> tuple[int, Finalize]:
+    def _op_initial(self, params: dict[str, Any]) -> _Plan:
         pending = self._render(self._center, self._mag)
-        return self._ledger.cost_us("create_session"), self._finalize_view(pending)
+        return _Plan(self._ledger.cost_us("create_session"), params, self._apply_view(pending))
 
     def _encode(self, arr: RGB) -> bytes:
         enc = self.profile.image
@@ -811,20 +985,16 @@ class Session:
         return p
 
     def _parse_geometry(self, geometry: Any, view: ViewRecord) -> tuple[str, tuple[Point, ...]]:
-        if not isinstance(geometry, Mapping):
+        if not isinstance(geometry, Mapping) or set(geometry) != {"type", "coordinates"}:
             raise InvalidParameter(
-                "geometry must be an object with 'type' and 'coordinates'.",
+                "geometry must be an object with exactly the keys 'type' and 'coordinates'.",
                 hint='Example: {"type": "point", "coordinates": [100, 200]}.',
             )
-        gtype, coords = geometry.get("type"), geometry.get("coordinates")
+        gtype, coords = geometry["type"], geometry["coordinates"]
         if gtype == "point":
             return "point", (self._inside(_point(coords, "coordinates"), view),)
         if gtype == "polygon":
-            if (
-                not isinstance(coords, Sequence)
-                or isinstance(coords, str)
-                or not 3 <= len(coords) <= POLYGON_MAX
-            ):
+            if not isinstance(coords, list | tuple) or not 3 <= len(coords) <= POLYGON_MAX:
                 raise InvalidParameter(
                     f"A polygon needs 3-{POLYGON_MAX} [x, y] points in view pixels."
                 )
@@ -832,4 +1002,6 @@ class Session:
                 self._inside(_point(c, f"coordinates[{i}]"), view) for i, c in enumerate(coords)
             )
             return "polygon", pts
-        raise InvalidParameter(f"Unsupported geometry type {gtype!r}; use 'point' or 'polygon'.")
+        raise InvalidParameter(
+            f"Unsupported geometry type {_short(gtype, 30)}; use 'point' or 'polygon'."
+        )

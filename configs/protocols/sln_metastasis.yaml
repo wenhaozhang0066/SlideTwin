@@ -1,10 +1,11 @@
 # Task T1: sentinel lymph node metastasis, slide level (SPEC 5.2, appendix A).
 # Collected from public reporting guidance (CAP and ICCR lymph node reporting elements, AJCC
-# thresholds) and common reading practice. EVERY rule is a DRAFT until a pathologist confirms it;
-# then set status: confirmed and fill reviewed_by / reviewed_on. Open questions are listed in
-# docs/DECISIONS.md under "Needs pathologist review".
+# thresholds) and common reading practice. EVERY rule is a DRAFT. A pathologist confirms rules one
+# at a time: set that rule's status to confirmed and fill its reviewed_by and reviewed_on
+# (YYYY-MM-DD). The protocol itself can be confirmed only when every rule is. Open questions are
+# listed in docs/DECISIONS.md under "Needs pathologist review".
 id: sln_metastasis
-version: 0.1.0
+version: 0.2.0
 status: draft
 reviewed_by: null
 reviewed_on: null
@@ -12,47 +13,104 @@ title: Sentinel lymph node metastasis (slide level)
 instructions: >-
   Read the whole slide. Report whether metastatic carcinoma is present, its category
   (macrometastasis, micrometastasis or isolated tumour cells), the size of the largest contiguous
-  deposit in mm, and extranodal extension. A slide may contain several lymph node sections; look
-  at every tissue piece. Research prototype, not for clinical use.
-general_rules:
+  deposit in mm, and extranodal extension. Research prototype, not for clinical use.
+
+general_rules:   # SPEC 5.1, independent of the profile
   - id: R-G1
     status: draft
+    reviewed_by: null
+    reviewed_on: null
     text: Start with a low-power overview (thumbnail or 2.5x or lower) to see how many tissue pieces there are and where.
   - id: R-G2
     status: draft
+    reviewed_by: null
+    reviewed_on: null
     text: Screen all tissue systematically at low to medium power (5x-10x) along a serpentine path; avoid jumping around.
   - id: R-G3
     status: draft
+    reviewed_by: null
+    reviewed_on: null
     text: Confirm suspicious areas at high power (20x-40x) before using them as positive evidence.
   - id: R-G4
     status: draft
+    reviewed_by: null
+    reviewed_on: null
     text: Measure sizes and distances with the measuring tool within a single view, in um or mm; do not estimate by eye.
   - id: R-G5
     status: draft
+    reviewed_by: null
+    reviewed_on: null
     text: Any "not seen" or negative conclusion must meet the protocol's coverage requirement.
+
+task_rules:      # SPEC 5.2
+  - id: T1-SCOPE
+    status: draft
+    reviewed_by: null
+    reviewed_on: null
+    text: A slide may contain several lymph node sections; every tissue piece must be examined.
+  - id: T1-ITC-REPORT
+    status: draft
+    reviewed_by: null
+    reviewed_on: null
+    text: Report isolated tumour cells separately only when there is no macro- or micrometastasis.
+
 magnification:
+  status: draft
+  reviewed_by: null
+  reviewed_on: null
   screen_min: 10      # lowest magnification for systematic screening
   confirm_min: 20     # lowest magnification for positive evidence
+
 measurement:
+  status: draft
+  reviewed_by: null
+  reviewed_on: null
   rule: largest_contiguous_deposit
   include_satellites: false
   include_extranodal_extension: true
-  min_pixels_across: 20    # draft
-coverage:
-  negative_min_fraction: 0.98   # placeholder; the pathologist decides
+  min_pixels_across: 20
+
+coverage:        # negative coverage requirement; the numbers are placeholders
+  status: draft
+  reviewed_by: null
+  reviewed_on: null
+  negative_min_fraction: 0.98
   at_or_above_mag: 10
   grid_um: 32
-categories:
-  macro: {gt_mm: 2.0}
-  micro: {gt_mm: 0.2, le_mm: 2.0, or_cells_gt: 200}
-  itc: {le_mm: 0.2, cells_le: 200}
-category_notes:
-  - Editions word the 200-cell boundary slightly differently; the edition the reviewing pathologist uses applies (needs review).
-  - Report isolated tumour cells separately only when there is no macro- or micrometastasis.
-reading_path_hints:   # hints only, not enforced
-  - Identify all lymph node sections at low power
-  - Examine the subcapsular sinus of each node first
-  - Systematically screen the nodal parenchyma at 10x
-  - Confirm suspicious clusters at 20-40x
-report_fields: [metastasis, category, largest_deposit_mm, extranodal_extension]
+
+categories:      # each category is confirmed on its own
+  - id: macro
+    status: draft
+    reviewed_by: null
+    reviewed_on: null
+    limits: {gt_mm: 2.0}
+  - id: micro
+    status: draft
+    reviewed_by: null
+    reviewed_on: null
+    limits: {gt_mm: 0.2, le_mm: 2.0, or_cells_gt: 200}
+    note: Editions word the 200-cell boundary slightly differently; the edition the reviewing pathologist uses applies.
+  - id: itc
+    status: draft
+    reviewed_by: null
+    reviewed_on: null
+    limits: {le_mm: 0.2, cells_le: 200}
+    note: Editions word the 200-cell boundary slightly differently; the edition the reviewing pathologist uses applies.
+
+reading_path_hints:   # hints only, never enforced
+  status: draft
+  reviewed_by: null
+  reviewed_on: null
+  hints:
+    - Identify all lymph node sections at low power
+    - Examine the subcapsular sinus of each node first
+    - Systematically screen the nodal parenchyma at 10x
+    - Confirm suspicious clusters at 20-40x
+
+reporting:
+  status: draft
+  reviewed_by: null
+  reviewed_on: null
+  fields: [metastasis, category, largest_deposit_mm, extranodal_extension]
+
 enforcement: advisory     # advisory | enforced

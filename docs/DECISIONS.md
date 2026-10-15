@@ -6,21 +6,38 @@ under "Needs pathologist review" below.
 
 ## Needs pathologist review
 
-All of these are `status: draft` until a pathologist confirms them. Record the reviewer and date when
-confirmed.
+Each protocol rule in `configs/protocols/sln_metastasis.yaml` has its own `status`, `reviewed_by` and
+`reviewed_on`. A pathologist confirms rules one at a time; `confirmed` requires a reviewer name and
+date, and the protocol itself can be confirmed only when every rule is. A test keeps this table in
+step with the YAML.
 
-| Item | Current draft value | Where |
-|---|---|---|
-| Magnification presets and keyboard keys | 1.25, 2.5, 5, 10, 20, 40x on keys 1-6 | `configs/profiles/*.yaml` |
-| Magnification-to-resolution convention | `mpp(m) = 0.25 * 40 / m` um/px | profiles |
-| Tolerance for offering a magnification | 0.06 (a nominal 40x scan at up to 0.266 um/px still offers 40x) | profiles |
-| General reading habits R-G1 to R-G5 | as in SPEC 5.1 | `configs/protocols/sln_metastasis.yaml` |
-| T1 thresholds | macro > 2 mm; micro > 0.2-2 mm and/or > 200 cells; ITC <= 0.2 mm and <= 200 cells. Which wording of the 200-cell boundary applies is open | protocol |
-| Measurement rule | largest contiguous deposit only; satellites excluded; extranodal extension included | protocol |
-| Negative coverage requirement | >= 98% of tissue seen at >= 10x, 32 um grid | protocol |
-| Minimum pixels across a measurement | 20 px | protocol |
-| Minimum magnification for positive evidence | 20x | protocol |
-| Cost-model values | SPEC 8 placeholders; to be calibrated from pathologist logs (M7) | profiles |
+| Rule | Current draft content |
+|---|---|
+| `general_rules.R-G1` | Low-power overview first (thumbnail or <= 2.5x). |
+| `general_rules.R-G2` | Systematic serpentine screening at 5x-10x. |
+| `general_rules.R-G3` | Confirm suspicious areas at 20x-40x before using them as evidence. |
+| `general_rules.R-G4` | Measure with the tool within one view, in um or mm. |
+| `general_rules.R-G5` | Negative conclusions must meet the coverage requirement. |
+| `task_rules.T1-SCOPE` | Every tissue piece (several node sections per slide) must be examined. |
+| `task_rules.T1-ITC-REPORT` | Report ITC separately only when there is no macro- or micrometastasis. |
+| `magnification` | Screening at >= 10x; positive evidence at >= 20x. |
+| `measurement` | Largest contiguous deposit only; satellites excluded; extranodal extension included; >= 20 px across. |
+| `coverage` | >= 98% of tissue seen at >= 10x on a 32 um grid (placeholder numbers). |
+| `categories.macro` | Macrometastasis: > 2 mm. |
+| `categories.micro` | Micrometastasis: > 0.2 mm to 2 mm and/or > 200 cells. Which edition's 200-cell wording applies is open. |
+| `categories.itc` | Isolated tumour cells: <= 0.2 mm and <= 200 cells (same open wording question). |
+| `reading_path_hints` | The four SPEC 5.2 hints (never enforced). |
+| `reporting` | Fields: metastasis, category, largest deposit (mm), extranodal extension. |
+
+Profile values (`configs/profiles/*.yaml`, profile-level `status: draft`):
+
+| Item | Current draft value |
+|---|---|
+| Magnification presets and keyboard keys | 1.25, 2.5, 5, 10, 20, 40x on keys 1-6 (keys arrive with the UI in M3) |
+| Magnification-to-resolution convention | `mpp(m) = 0.25 * 40 / m` um/px |
+| Tolerance for offering a magnification | 0.06 (a nominal 40x scan at up to 0.266 um/px still offers 40x) |
+| Default viewport | 1280 x 1024 px (see "Default viewport" below); a pathologist may prefer a larger field |
+| Cost-model values | SPEC 8 placeholders; to be calibrated from pathologist logs (M7) |
 
 ## Needs user decision
 
@@ -226,3 +243,134 @@ The binding contract is [ARCHITECTURE.md](ARCHITECTURE.md). Decisions made while
   - Rate limiting and CORS: rate limiting arrives with the public Space (M7). The web UI (M3) is
     same-origin.
   - Rule checks E1-E4 and coverage in the report receipt: M5.
+
+## Adversarial review of M1 and M2 (2026-10-15)
+
+Two independent reviews, each finding re-checked by a skeptic:
+- Core: four angles (geometry and rendering, SPEC compliance, determinism and replay, robustness and
+  security).
+- REST layer: three angles (contract, security, robustness).
+
+Results: 57 findings confirmed (2 critical), 12 refuted. Every confirmed finding is fixed. Each has a
+regression test that names its review id, in `tests/core/test_review_regressions.py`,
+`tests/api/test_review_regressions.py` and `tests/core/test_error_paths.py`. Decisions that changed:
+
+- **Ground truth through slide ids (critical).**
+  - Problem: the demo ids repeated the CAMELYON file names, which contain the label
+    (`c16_tumor_082`), and every session returns its slide id.
+  - Ids are now opaque: `c16_` plus the first six hex digits of the file's sha256.
+  - The manifest loader refuses an entry whose id, license or attribution contains any `eval_only`
+    value.
+  - `GET /api/slides` lists only id, license and attribution; the source URL stays on the server.
+  - Errors name the slide id, never the file. This supersedes D12.
+  - Limitation: a public slide can be identified from its dimensions or file hash. Blind experiments
+    need offline agents or non-public slides.
+- **Atomic actions.**
+  - Every action plans without side effects, then commits with a full rollback on any failure. Roll
+    back means no id is used up and nothing is charged.
+  - Unexpected failures become `INTERNAL` and are logged.
+  - A session that cannot write its log stops. Replay skips `INTERNAL` events, which record environment
+    failures that applied nothing.
+  - This supersedes the failure wording of D8.
+- **Logged parameters.**
+  - Successful events log the canonical values the action used, so they always replay.
+  - Failed events log a JSON-safe copy of the raw input, capped at 16 KB.
+  - Annotation geometry must have exactly `type` and `coordinates`.
+  - Error messages echo inputs in shortened form only.
+- **Log encoding.** Lines are ASCII JSON, read by splitting on `\n` only, and partial lines are cut
+  back. U+2028, U+2029, U+0085 and lone surrogates can no longer break a trajectory.
+- **Client metadata** never decides an action: invalid or oversized metadata is replaced by a note.
+  Replay ignores client metadata, so this keeps every log replayable.
+- **`close()` is final.**
+  - It waits for a running action, then refuses everything.
+  - The manager closes sessions outside its own lock and deletes the images of ended sessions;
+    trajectories stay.
+- **View budget.** It limits only actions that would serve a new view. The last view can still be
+  measured and annotated. This supersedes the budget wording of D8.
+- **Per-rule review (SPEC 5).**
+  - Every rule block, each text rule and each category has `status`, `reviewed_by` and `reviewed_on`.
+    `confirmed` requires a reviewer and a date, and the protocol is confirmed only when every rule is.
+  - Structure changes from appendix A, which supersede D17's "verbatim":
+    - categories are a list of per-category rules with `limits`;
+    - `report_fields` became `reporting.fields`;
+    - the scope rule and the ITC reporting rule became `task_rules`.
+  - A test keeps the "Needs pathologist review" table complete.
+- **Configs.** Protocol numbers must be finite.
+- **Thumbnail.** It is never finer than the scan; small slides get small thumbnails.
+- **Rendering.**
+  - A partial block at the slide edge is completed with fill before integer reduction, so the edge no
+    longer moves.
+  - Reduction and padding are per axis, with a 100 MP canvas guard.
+- **Backends.**
+  - Open and decode failures become `SLIDE_METADATA` or `SLIDE_READ_ERROR`, naming the slide id.
+  - Handles are closed on failure.
+  - `open_slide` defaults its display name to `"slide"`, never to the file name.
+- **Slide hash cache.**
+  - The cache is only a hint: malformed content and write failures are ignored, and temp files are
+    unique.
+  - A pinned hash is always checked on the file itself, once per process.
+- **Replay.** Header and event structure are validated; damaged logs give `REPLAY_ERROR`.
+- **Strict input.**
+  - Report models are strict.
+  - Actor, image and session ids use exact ASCII patterns.
+  - REST numbers no longer accept booleans or numeric strings.
+- **REST.**
+  - Errors carry `seq`, `cost_s` and `elapsed_s`.
+  - Undecodable bodies give 422 `INVALID_REQUEST`.
+  - 405 responses keep `Allow` and name the method to use; 404 points to `/docs`.
+  - Every route documents its own error statuses, including 500.
+  - The report schema is inlined in OpenAPI and served at `GET /api/report_schema`.
+  - Payloads are built by core methods (`Session.opening()`, `SessionManager.catalogue()` and others),
+    so MCP will serve the same.
+- **Server settings.**
+  - Settings are validated, and `SLIDETWIN_LOG_DIR` is required and checked at startup. A memory-only
+    server could lose finished trajectories.
+  - New `SLIDETWIN_SESSION_MAX_AGE_S` (default 8 h).
+  - Reading state, images or the trajectory does not keep a session alive.
+  - 503 responses carry `Retry-After`.
+  - Invalid creations are refused before any slide is opened or folder created.
+  - Slides open under per-slide locks, and `/api/health` is async.
+
+Refuted, with the reason they were left unchanged:
+
+| Findings | Reason |
+|---|---|
+| GR-4, GR-5 | The crop cap stays at native resolution, and level choice stays strict. Upsampling is never used when avoidable; the tolerance applies only to offering presets. |
+| SC-06 | Report fields from YAML drive rule checks in M5. |
+| SC-09 | Each event already carries its time. |
+| DR-07, DR-13 | Replay proves reproducibility, not authenticity. A hash chain can be added if needed. |
+| DR-09 | Header fields outside the hashed content are informational. |
+| RS-10 | Images live in a server-local store. |
+| M2-C3 | A request refused by the REST schema is a transport error, not a session action. |
+| M2-C10 | Listing only openable slides would need hashing gigabyte files at startup. |
+| M2-SEC-06 | Request timeouts and rate limits come with the public Space (M7). |
+
+## Default viewport (2026-10-15)
+
+- **Decision.** 1280 x 1024 px, shown 1:1, in both profiles, for humans and agents alike.
+- **Source.** Japanese Society of Pathology and Japanese Society of Digital Pathology, *Technical
+  Standards of Digital Pathology Systems for Pathologic Diagnosis*, 4th ed., 2024-05-17
+  (https://pathology.or.jp/kijun_v4.pdf; the clauses were checked against the PDF).
+  - Section 8.1(1): the monitor has at least 1280 x 1024 display pixels.
+  - Section 8.2(3): display at 1:1 pixel scale is the basis.
+- **Why this source.** It was the only normative pixel requirement found. FDA guidance, CAP and DICOM
+  set no pixel count. ESP and SEAP suggest Full HD as a minimum, and FDA-cleared systems ship 1920 x
+  1200 to 3840 x 2160 displays.
+- **Field of view.**
+  - 40x: 320 x 256 um (0.082 mm2, about a third of an FN 22 high-power field).
+  - 10x: 1.28 x 1.02 mm.
+  - 1.25x: 10.2 x 8.2 mm.
+- **Agents.**
+  - Claude 4.7 or later, Qwen3-VL and gpt-5.4-class models at high detail take 1280 x 1024 unscaled.
+    GPT-4o-class tile models shrink it to 960 x 768.
+  - A client that must downscale does so itself, maps coordinates back to view pixels and declares the
+    scale in client metadata.
+  - Other sizes run only as named conditions for humans and agents alike:
+    - 1920 x 1080: clinical display.
+    - 2560 x 1440: about one HPF at 40x.
+- **Alternatives.**
+  - 1024 x 768 (the SPEC suggestion): below the JSP minimum.
+  - 1920 x 1080: an expert-opinion minimum.
+  - 2560 x 1440: one cleared system.
+- **For M3.** The UI shows the view at 1:1 device pixels (aware of devicePixelRatio) and logs the display
+  scale of each human session.

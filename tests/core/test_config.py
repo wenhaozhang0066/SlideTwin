@@ -43,21 +43,87 @@ def test_protocol_is_draft_everywhere(configs: ConfigStore) -> None:
     proto = configs.protocol("sln_metastasis")
     assert proto.status == "draft"
     assert proto.reviewed_by is None
-    assert [r.id for r in proto.general_rules] == ["R-G1", "R-G2", "R-G3", "R-G4", "R-G5"]
-    assert all(r.status == "draft" for r in proto.general_rules)
-    assert proto.categories["macro"] == {"gt_mm": 2.0}
+    refs = [ref for ref, _ in proto.review_items()]
+    assert refs[:5] == [f"general_rules.R-G{i}" for i in range(1, 6)]
+    assert "task_rules.T1-SCOPE" in refs
+    assert [r for r in refs if r.startswith("categories.")] == [
+        "categories.macro",
+        "categories.micro",
+        "categories.itc",
+    ]
+    assert all(rule.status == "draft" for _, rule in proto.review_items())
+    assert proto.categories[0].id == "macro"
+    assert proto.categories[0].limits == {"gt_mm": 2.0}
     assert proto.enforcement == "advisory"
     task = proto.task_description()
     assert task["protocol_id"] == "sln_metastasis"
-    assert task["report_fields"] == [
+    assert task["reporting"]["fields"] == [
         "metastasis",
         "category",
         "largest_deposit_mm",
         "extranodal_extension",
     ]
-    assert task["categories"]["micro"] == {"gt_mm": 0.2, "le_mm": 2.0, "or_cells_gt": 200.0}
+    assert task["categories"][1]["limits"] == {"gt_mm": 0.2, "le_mm": 2.0, "or_cells_gt": 200.0}
     assert task["coverage"]["negative_min_fraction"] == 0.98
+    assert task["coverage"]["status"] == "draft"
     assert len(task["general_rules"]) == 5
+
+
+def test_rules_are_confirmed_one_at_a_time_with_reviewer_and_date() -> None:
+    data = raw("protocols/sln_metastasis.yaml")
+    data["coverage"]["status"] = "confirmed"
+    with pytest.raises(ConfigError, match="reviewed_by and reviewed_on"):
+        load_protocol_data(data)
+    data["coverage"].update(reviewed_by="Dr. A", reviewed_on="2026-11-02")
+    proto = load_protocol_data(data)
+    assert proto.coverage.status == "confirmed"
+    assert proto.magnification.status == "draft"  # other rules stay draft
+    data["status"] = "confirmed"
+    data.update(reviewed_by="Dr. A", reviewed_on="2026-11-02")
+    with pytest.raises(ConfigError, match="these rules are draft"):
+        load_protocol_data(data)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        ("categories", 0, {"id": "macro", "limits": {"gt_mm": float("inf")}}),
+        ("categories", 0, {"id": "macro", "limits": {"gt_mm": float("nan")}}),
+        ("coverage", "grid_um", float("inf")),
+        ("magnification", "confirm_min", float("inf")),
+    ],
+)
+def test_protocol_numbers_must_be_finite(patch: tuple[str, Any, Any]) -> None:
+    data = raw("protocols/sln_metastasis.yaml")
+    data[patch[0]][patch[1]] = patch[2]
+    with pytest.raises(ConfigError):
+        load_protocol_data(data)
+
+
+def test_each_category_is_confirmed_on_its_own() -> None:
+    data = raw("protocols/sln_metastasis.yaml")
+    data["categories"][0].update(status="confirmed", reviewed_by="Dr. A", reviewed_on="2026-11-02")
+    proto = load_protocol_data(data)
+    statuses = {c.id: c.status for c in proto.categories}
+    assert statuses == {"macro": "confirmed", "micro": "draft", "itc": "draft"}
+    data["categories"].append(dict(data["categories"][0]))
+    with pytest.raises(ConfigError, match="category ids must be unique"):
+        load_protocol_data(data)
+
+
+def test_rule_ids_are_unique() -> None:
+    data = raw("protocols/sln_metastasis.yaml")
+    data["task_rules"][1]["id"] = "R-G1"
+    with pytest.raises(ConfigError, match="unique"):
+        load_protocol_data(data)
+
+
+def test_every_draft_rule_is_listed_for_pathologist_review(configs: ConfigStore) -> None:
+    decisions = (CONFIG_DIR.parent / "docs" / "DECISIONS.md").read_text()
+    table = decisions.split("## Needs pathologist review", 1)[1].split("\n## ", 1)[0]
+    for ref, rule in configs.protocol("sln_metastasis").review_items():
+        if rule.status == "draft":
+            assert f"`{ref}`" in table, ref
 
 
 def test_content_hash_is_order_independent_and_value_sensitive() -> None:

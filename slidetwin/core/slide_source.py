@@ -16,7 +16,13 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import NDArray
 
-from slidetwin.core.errors import InvalidParameter, SlideMetadataError, SlideNotFound
+from slidetwin.core.errors import (
+    InvalidParameter,
+    SlideMetadataError,
+    SlideNotFound,
+    SlideReadError,
+    SlideTwinError,
+)
 from slidetwin.core.geometry import Point, Size, level_mpps
 
 RGB = NDArray[np.uint8]
@@ -164,23 +170,35 @@ class ArraySlideSource(_BaseSource):
 class TiffSlideSource(_BaseSource):
     """Default reader (pure Python, via tiffslide)."""
 
-    def __init__(self, path: Path, *, mpp_override: Point | None = None) -> None:
+    def __init__(self, path: Path, *, name: str, mpp_override: Point | None = None) -> None:
         import tiffslide
 
-        self._slide = tiffslide.TiffSlide(str(path))
-        props = self._slide.properties
-        mpp = resolve_mpp(
-            props.get("tiffslide.mpp-x"), props.get("tiffslide.mpp-y"), mpp_override, path.name
-        )
-        group: Any = self._slide.zarr_group
-        self._arrays: list[Any] = [group[str(i)] for i in range(self._slide.level_count)]
+        slide = _open_backend(lambda: tiffslide.TiffSlide(str(path)), name, "tiffslide")
+        try:
+            props = slide.properties
+            mpp = resolve_mpp(
+                props.get("tiffslide.mpp-x"), props.get("tiffslide.mpp-y"), mpp_override, name
+            )
+            group: Any = slide.zarr_group
+            self._arrays: list[Any] = [group[str(i)] for i in range(slide.level_count)]
+            dims = slide.level_dimensions
+        except SlideTwinError:
+            slide.close()
+            raise
+        except Exception as err:
+            slide.close()
+            raise _unreadable(name, "tiffslide", err) from None
+        self._slide = slide
         backend = f"tiffslide {importlib.metadata.version('tiffslide')}"
-        super().__init__(self._slide.level_dimensions, mpp, backend, path.name)
+        super().__init__(dims, mpp, backend, name)
 
     def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
         self._check(level, x, y, w, h)
-        with self._lock:
-            arr = np.asarray(self._arrays[level][y : y + h, x : x + w])
+        try:
+            with self._lock:
+                arr = np.asarray(self._arrays[level][y : y + h, x : x + w])
+        except Exception as err:
+            raise _read_failed(self._name, level, err) from None
         return to_rgb(arr)
 
     def close(self) -> None:
@@ -190,43 +208,86 @@ class TiffSlideSource(_BaseSource):
 class OpenSlideSource(_BaseSource):
     """Optional reader (OpenSlide C library via openslide-bin)."""
 
-    def __init__(self, path: Path, *, mpp_override: Point | None = None) -> None:
+    def __init__(self, path: Path, *, name: str, mpp_override: Point | None = None) -> None:
         import openslide
 
-        self._slide = openslide.OpenSlide(str(path))
-        props = self._slide.properties
-        mpp = resolve_mpp(
-            props.get(openslide.PROPERTY_NAME_MPP_X),
-            props.get(openslide.PROPERTY_NAME_MPP_Y),
-            mpp_override,
-            path.name,
-        )
+        slide = _open_backend(lambda: openslide.OpenSlide(str(path)), name, "openslide")
+        try:
+            props = slide.properties
+            mpp = resolve_mpp(
+                props.get(openslide.PROPERTY_NAME_MPP_X),
+                props.get(openslide.PROPERTY_NAME_MPP_Y),
+                mpp_override,
+                name,
+            )
+            dims = slide.level_dimensions
+        except SlideTwinError:
+            slide.close()
+            raise
+        except Exception as err:
+            slide.close()
+            raise _unreadable(name, "openslide", err) from None
+        self._slide = slide
         version = getattr(openslide, "__library_version__", "unknown")
-        super().__init__(self._slide.level_dimensions, mpp, f"openslide {version}", path.name)
+        super().__init__(dims, mpp, f"openslide {version}", name)
 
     def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
         self._check(level, x, y, w, h)
         ds = self._slide.level_downsamples[level]
-        with self._lock:
-            img = self._slide.read_region((round(x * ds), round(y * ds)), level, (w, h))
+        try:
+            with self._lock:
+                img = self._slide.read_region((round(x * ds), round(y * ds)), level, (w, h))
+        except Exception as err:
+            raise _read_failed(self._name, level, err) from None
         return to_rgb(np.asarray(img))
 
     def close(self) -> None:
         self._slide.close()
 
 
+def _unreadable(name: str, backend: str, err: BaseException) -> SlideMetadataError:
+    # Only the slide id and the exception type reach clients; file names can carry labels.
+    return SlideMetadataError(
+        f"Slide '{name}' could not be opened with the {backend} backend ({type(err).__name__}).",
+        hint="Check the file, or set backend: openslide for this slide in the manifest.",
+    )
+
+
+def _read_failed(name: str, level: int, err: BaseException) -> SlideReadError:
+    return SlideReadError(
+        f"Slide '{name}' could not be decoded at level {level} ({type(err).__name__}).",
+        hint="The slide file may be damaged or incompletely downloaded.",
+    )
+
+
+def _open_backend(opener: Any, name: str, backend: str) -> Any:
+    try:
+        return opener()
+    except Exception as err:
+        raise _unreadable(name, backend, err) from None
+
+
 def open_slide(
-    path: Path, *, backend: str = "tiffslide", mpp_override: Point | None = None, name: str = ""
+    path: Path,
+    *,
+    name: str = "slide",
+    backend: str = "tiffslide",
+    mpp_override: Point | None = None,
 ) -> SlideSource:
-    """Open a slide file; refuses files without a usable mpp unless overridden."""
-    label = name or path.name
+    """Open a slide file; refuses files without a usable mpp unless overridden.
+
+    `name` is the public slide id. It is the only identifier that appears in errors: file names
+    are internal and may encode labels.
+    """
+    if backend not in BACKENDS:
+        raise InvalidParameter(
+            f"Unknown slide backend '{backend}'. Use one of {', '.join(BACKENDS)}."
+        )
     if not path.is_file():
         raise SlideNotFound(
-            f"Slide file for '{label}' was not found.",
+            f"The file for slide '{name}' was not found.",
             hint="Check SLIDETWIN_SLIDE_DIR and the path in configs/slides/manifest.yaml.",
         )
     if backend == "tiffslide":
-        return TiffSlideSource(path, mpp_override=mpp_override)
-    if backend == "openslide":
-        return OpenSlideSource(path, mpp_override=mpp_override)
-    raise InvalidParameter(f"Unknown slide backend '{backend}'. Use one of {', '.join(BACKENDS)}.")
+        return TiffSlideSource(path, name=name, mpp_override=mpp_override)
+    return OpenSlideSource(path, name=name, mpp_override=mpp_override)

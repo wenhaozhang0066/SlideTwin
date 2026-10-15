@@ -30,6 +30,7 @@ clock in seconds."""
 
 
 def build_manager(settings: Settings) -> SessionManager:
+    settings.check_log_dir()
     return SessionManager(
         registry=SlideRegistry.from_manifest(
             settings.manifest, settings.slide_dir, cache_dir=settings.cache_dir
@@ -38,6 +39,7 @@ def build_manager(settings: Settings) -> SessionManager:
         log_dir=settings.log_dir,
         max_sessions=settings.max_sessions,
         idle_ttl_s=settings.idle_ttl_s,
+        max_age_s=settings.max_age_s,
     )
 
 
@@ -51,6 +53,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
         mgr.close_all()
+        mgr.registry.close()
 
     app = FastAPI(
         title="SlideTwin", version=__version__, description=DESCRIPTION, lifespan=lifespan
@@ -60,7 +63,7 @@ def create_app(
     app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
 
     @app.get("/api/health", tags=["meta"])
-    def health() -> dict[str, str]:
+    async def health() -> dict[str, str]:  # async: answers even when worker threads are busy
         return {"status": "ok", "version": __version__, "git_sha": git_sha()}
 
     app.include_router(router)

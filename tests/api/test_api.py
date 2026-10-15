@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from slidetwin.api.settings import Settings
+from slidetwin.core import session as session_mod
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.replay import replay
 from slidetwin.core.session import Session
@@ -189,6 +190,9 @@ def test_spec_error_message_for_unavailable_magnification(client: TestClient) ->
         "message": "40x is not available: this slide's native resolution is 0.50 um/px, "
         "so the highest magnification is 20x.",
         "hint": "Use one of: 1.25x, 2.5x, 5x, 10x, 20x.",
+        "seq": 2,  # where the failed action sits in the trajectory
+        "cost_s": 0.0,
+        "elapsed_s": 0.3,
     }
     resp = client.post(url(sid, "magnification"), json={"mag": 3})
     assert err(resp)["code"] == "MAG_NOT_PRESET"
@@ -426,7 +430,32 @@ def test_chunked_oversized_body_is_refused(client: TestClient) -> None:
     assert resp.status_code == 413
 
 
-def test_internal_errors_do_not_leak_details(
+def test_failures_inside_an_action_are_logged_and_change_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sid = open_session(client)["session_id"]
+    before = client.get(url(sid, "state")).json()["state"]
+
+    def boom(*args: Any, **kw: Any) -> None:
+        raise RuntimeError("/secret/path/to/slide.svs exploded")
+
+    monkeypatch.setattr(session_mod, "render_region", boom)
+    resp = client.post(url(sid, "magnification"), json={"mag": 10})
+    assert resp.status_code == 500
+    body = err(resp)
+    assert body["code"] == "INTERNAL"
+    assert body["seq"] == 3
+    assert "secret" not in resp.text
+    monkeypatch.undo()
+    after = client.get(url(sid, "state")).json()["state"]
+    assert after["mag"] == before["mag"]
+    assert after["elapsed_s"] == before["elapsed_s"]
+    events = [json.loads(x) for x in client.get(url(sid, "trajectory")).text.splitlines()][1:]
+    assert events[2]["error"]["code"] == "INTERNAL"
+    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+
+
+def test_adapter_errors_do_not_leak_details(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from slidetwin.api.main import create_app
@@ -442,7 +471,7 @@ def test_internal_errors_do_not_leak_details(
     assert resp.status_code == 500
     assert err(resp) == {
         "code": "INTERNAL",
-        "message": "Internal error. The failed action was logged.",
+        "message": "Internal error; the request was not completed.",
     }
     assert "secret" not in resp.text
 

@@ -86,7 +86,7 @@ def test_limit_and_closed_session_eviction(registry: SlideRegistry, configs: Con
     m = make(registry, configs, max_sessions=2)
     a = m.create(slide_id="syn", actor="agent:a", viewport_px=(256, 192))
     b = m.create(slide_id="syn", actor="agent:b", viewport_px=(256, 192))
-    with pytest.raises(TooManySessions, match=r"limit 2"):
+    with pytest.raises(TooManySessions, match=r"All 2 session slots"):
         m.create(slide_id="syn", actor="agent:c", viewport_px=(256, 192))
     b.submit_report(EXAMPLE)
     c = m.create(slide_id="syn", actor="agent:c", viewport_px=(256, 192))
