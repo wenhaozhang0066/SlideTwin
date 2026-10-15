@@ -1,6 +1,7 @@
-# SlideTwin: plan for M0-M2 (awaiting approval)
+# SlideTwin: plan for M0-M2
 
-Status: draft, 2026-10-14. No code has been written yet. Approving this plan starts M0.
+Status: approved 2026-10-14 and carried out (M0-M2 done 2026-10-15). Kept as the historical plan;
+current decisions live in DECISIONS.md.
 Decisions marked D* go into `docs/DECISIONS.md` in the milestone where they are implemented.
 
 ## 1. Environment findings (checked 2026-10-14)

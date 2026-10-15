@@ -113,6 +113,21 @@ Upsampling beyond native resolution happens only within the magnification tolera
 - **Actor.** Either `human:<alias>` or `agent:<name>`. The part after the colon is 1 to 64 characters from
   `[A-Za-z0-9._-]`.
 
+## Profile `microscope` (stub, SPEC 4.3; not implemented)
+
+This profile is reserved and specified here only. It has no YAML file yet, because its cost model and
+actions do not exist. TODO when it is scheduled:
+
+- **No thumbnail.** It offers only a naked-eye tissue outline (`get_overview`): a low-resolution tissue
+  silhouette without stain detail, derived from the tissue mask.
+- **Discrete objectives.** The preset list becomes the objective set. The field of view is circular,
+  `FN / objective` mm, with the eyepiece field number in the profile.
+- **Stage timing.**
+  - A new cost kind `stage`: travel time proportional to distance (`stage_speed_mm_s`) plus
+    `objective_change_s`.
+  - `move_to` is unavailable (there is no minimap to click); navigation is by stage moves only.
+- Non-goals stay: no focus, z-stack or optical degradation (SPEC 2).
+
 ## Errors
 
 Every failure is a `SlideTwinError` with `code`, `message` and an optional `hint`. Messages say what is
