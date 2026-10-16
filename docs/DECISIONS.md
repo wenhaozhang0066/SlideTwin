@@ -1000,6 +1000,12 @@ safety and release readiness). The confirmed findings and their fixes:
   committers and messages; e-mail addresses other than GitHub's noreply; more path, key and data
   patterns; size in the history. A test plants each kind in a scratch repository.
 - **Demo licence notice.** CC BY-NC-ND 4.0 with its link, and the source's link.
+- **Known limits, kept.** OLE2 files (Zeiss ZVI, but also Motic MDS) always go to the ZVI
+  reader, so a plugin is not asked about them yet. `slidetwin manifest` looks for slides by their
+  usual file names (a plugin's own suffix is not among them), and it refuses a file with several
+  scenes or a folder with several DICOM series: such slides need one hand-written entry per
+  scene or level file. In Env, `get_state` with an unknown key is refused, as MCP refuses it; REST
+  reads no body for it.
 - **Open, for the owner.**
   - Before publishing an image: the notices of the Rust crates in pydantic-core, rpds-py and
     cryptography, and libquadmath's source ([THIRD_PARTY.md](THIRD_PARTY.md)).
