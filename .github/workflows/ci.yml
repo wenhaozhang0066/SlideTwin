@@ -21,13 +21,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
-      - name: Cache test slide
+      - name: Cache test slides
         uses: actions/cache@v4
         with:
           path: data/testdata
           key: testdata-${{ hashFiles('scripts/fetch_test_data.py') }}
-      - name: Fetch test slide (CC0, 1.9 MB)
-        run: python scripts/fetch_test_data.py
+      - name: Fetch test slides (CC0, tiers 1 and 2, about 300 MB)
+        run: python scripts/fetch_test_data.py --tier 2
       - name: Lint
         run: |
           ruff check .

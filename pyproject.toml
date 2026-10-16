@@ -82,7 +82,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
-  "testdata: needs the CC0 test slide fetched by scripts/fetch_test_data.py",
+  "testdata: needs test slides fetched by scripts/fetch_test_data.py",
   "camelyon: needs local CAMELYON16 slides (set SLIDETWIN_CAMELYON_DIR)",
   "e2e: drives the web UI in headless Chromium (needs the e2e extra and a browser build)",
 ]

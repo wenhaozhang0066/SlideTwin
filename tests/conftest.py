@@ -21,6 +21,21 @@ TESTDATA_DIR = Path(os.environ.get("SLIDETWIN_TESTDATA_DIR", REPO_ROOT / "data" 
 CMU_SMALL = TESTDATA_DIR / "openslide-testdata" / "CMU-1-Small-Region.svs"
 
 
+def sample_path(rel: str, tier: int = 1) -> Path:
+    """A sample fetched by scripts/fetch_test_data.py (path under data/testdata/openslide-testdata).
+
+    Skips when it is missing. CI sets SLIDETWIN_REQUIRE_TESTDATA=1 and fetches tiers 1 and 2, so
+    there a missing tier-1 or tier-2 sample is an error; tier 3 always skips when absent.
+    """
+    path = TESTDATA_DIR / "openslide-testdata" / rel
+    if not path.exists():
+        required = os.environ.get("SLIDETWIN_REQUIRE_TESTDATA") == "1" and tier <= 2
+        if required:
+            pytest.fail(f"missing test sample {rel}; run scripts/fetch_test_data.py --tier 2")
+        pytest.skip(f"test sample {rel} not downloaded (scripts/fetch_test_data.py --tier {tier})")
+    return path
+
+
 @pytest.fixture(scope="session")
 def cmu_small_path() -> Path:
     """Path to the CC0 Aperio test slide (0.499 um/px, one level).

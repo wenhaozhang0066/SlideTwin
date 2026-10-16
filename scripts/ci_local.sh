@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-python scripts/fetch_test_data.py
+python scripts/fetch_test_data.py --tier 2
 ruff check .
 ruff format --check .
 mypy slidetwin
