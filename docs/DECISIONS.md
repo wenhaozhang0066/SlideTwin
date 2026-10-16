@@ -712,6 +712,8 @@ automatically.
   before the first push to set it and to remove an internal path from the first plan. No
   co-author or tool attribution lines.
 - **Hugging Face Space.** `eric-1w/SlideTwin`, public, Docker SDK (set by the README header).
+- **English first.** The reading UI starts in English for every visitor (it no longer follows the
+  browser language); the Chinese strings stay one click away for local pilots.
 - **Demo slides on the public Space.** The owner decided to serve the five CAMELYON16 demo slides
   as well as the CC0 test slide. The CAMELYON16 licence statements conflict (DATA_LICENSES.md); the
   owner accepted that judgement. Attribution is shown with each slide, and the images are served

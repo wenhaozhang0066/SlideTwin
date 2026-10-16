@@ -2,7 +2,7 @@
 // thumbnail the environment served and logged for this session.
 import { api, ApiError } from "./api.js";
 import * as geo from "./geometry.js";
-import { currentLang, detectLang, setLang, t } from "./i18n.js";
+import { currentLang, setLang, t } from "./i18n.js";
 import * as rep from "./report.js";
 
 const $ = (id) => document.getElementById(id);
@@ -837,7 +837,7 @@ async function start(ev) {
 // --- wiring ----------------------------------------------------------------------------------
 
 function init() {
-  setLang(detectLang(navigator.language));
+  setLang("en"); // the deployed UI starts in English for everyone; 中文 is one click away
   applyI18n();
   $("help-button").addEventListener("click", () => $("help").showModal());
   $("feedback-form").addEventListener("submit", sendFeedback);
