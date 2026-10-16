@@ -15,11 +15,15 @@ import http.client
 import json
 import shutil
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
 BASE = "https://openslide.cs.cmu.edu/download/openslide-testdata/"
+ATTEMPTS = 4
+RETRY_PAUSE_S = 10.0  # times the attempt number
 DIST = "distributable"  # OpenSlide's label for samples that may be shared but are not CC0
 
 
@@ -151,18 +155,25 @@ def target_of(dest: Path, item: dict[str, object]) -> Path:
 
 
 def _download(url: str, out: Path, sha256: str) -> bool:
-    """Download to a temporary name and keep the file only if its hash matches."""
+    """Download to a temporary name and keep the file only if its hash matches. Network errors
+    (on CI runners often a passing DNS failure or reset) are retried after a growing pause; a
+    client error (4xx) or a wrong hash is not."""
     tmp = out.with_name(out.name + ".part")
     out.parent.mkdir(parents=True, exist_ok=True)
-    print(f"fetch   {url}")
-    try:
-        with urllib.request.urlopen(url, timeout=300) as resp, tmp.open("wb") as f:
-            while chunk := resp.read(1 << 20):
-                f.write(chunk)
-    except (OSError, http.client.HTTPException) as err:  # URLError is an OSError
-        tmp.unlink(missing_ok=True)
-        print(f"error   {url}: {type(err).__name__}: {err}", file=sys.stderr)
-        return False
+    for attempt in range(1, ATTEMPTS + 1):
+        print(f"fetch   {url}" + (f" (attempt {attempt} of {ATTEMPTS})" if attempt > 1 else ""))
+        try:
+            with urllib.request.urlopen(url, timeout=300) as resp, tmp.open("wb") as f:
+                while chunk := resp.read(1 << 20):
+                    f.write(chunk)
+            break
+        except (OSError, http.client.HTTPException) as err:  # URLError is an OSError
+            tmp.unlink(missing_ok=True)
+            print(f"error   {url}: {type(err).__name__}: {err}", file=sys.stderr)
+            client_error = isinstance(err, urllib.error.HTTPError) and 400 <= err.code < 500
+            if client_error or attempt == ATTEMPTS:
+                return False
+            time.sleep(RETRY_PAUSE_S * attempt)
     digest = sha256_of(tmp)
     if digest != sha256:
         tmp.unlink()
