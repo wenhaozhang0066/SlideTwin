@@ -20,6 +20,8 @@ from slidetwin.core.slide_source import ReaderOptions, SlideSource
 READERS: dict[str, tuple[str, str | None]] = {
     "tifffile": ("slidetwin.readers.tiff", None),
     "openslide": ("slidetwin.readers.openslide", "openslide"),
+    "wsidicom": ("slidetwin.readers.dicom", None),
+    "czi": ("slidetwin.readers.czi", None),
 }
 
 

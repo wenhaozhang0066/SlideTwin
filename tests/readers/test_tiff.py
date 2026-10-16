@@ -246,7 +246,7 @@ def test_open_source_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(SlideMetadataError, match="cannot read"):
         open_source(path, FormatMatch("plain-image", None, "Do X."), name="s1")
     with pytest.raises(SlideMetadataError, match="does not have yet"):
-        open_source(path, FormatMatch("zeiss-czi", "czi"), name="s1")
+        open_source(path, FormatMatch("future-format", "future-reader"), name="s1")
     import slidetwin.readers as readers
 
     monkeypatch.setitem(readers.READERS, "openslide", ("slidetwin_no_such_reader", "openslide"))

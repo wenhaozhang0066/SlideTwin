@@ -214,7 +214,12 @@ def test_expected_format_is_checked(slide_dir: Path) -> None:
     reg.close()
 
 
-def test_refused_formats_explain_what_to_do(tmp_path: Path) -> None:
+def test_refused_formats_explain_what_to_do(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slidetwin.readers as readers
+
+    monkeypatch.delitem(readers.READERS, "czi")  # as in a version without that reader
     (tmp_path / "scan.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
     (tmp_path / "scan.czi").write_bytes(b"ZISRAWFILE" + b"\x00" * 64)
     reg = SlideRegistry(
