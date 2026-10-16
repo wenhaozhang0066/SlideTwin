@@ -194,7 +194,7 @@ def test_a_crash_fails_one_read(tmp_path: Path) -> None:
     marker = tmp_path / "crash"
     src = open_vsi(write_vsi(tmp_path, read="crash-once", marker=str(marker)))
     marker.touch()
-    with pytest.raises(SlideReadError, match="the slideio worker stopped"):
+    with pytest.raises(SlideReadError, match="the worker stopped"):
         src.read_level(1, 0, 0, 64, 64)
     np.testing.assert_array_equal(src.read_level(1, 0, 0, 64, 64), pixels(0, 1, 0, 0, 64, 64))
     src.close()

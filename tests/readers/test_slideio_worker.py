@@ -1,19 +1,17 @@
-"""slideio worker (M8): the process boundary, the protocol, crashes, timeouts and restarts.
+"""slideio worker (M8): slideio's adapter in real worker processes, with crashes, timeouts and
+restarts, and the scene reports a worker sends.
 
 A fake slideio (tests/helpers/fake_slideio.py) runs in real worker processes, so CI checks the
 process handling without a VSI or ZVI sample. The worker's own loop is also run in a thread here,
-where coverage sees it.
+where coverage sees it. The protocol itself is tested in test_worker.py.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import signal
-import struct
 import subprocess
 import threading
-from collections.abc import Iterator
 from multiprocessing import Pipe
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -23,23 +21,21 @@ import numpy as np
 import pytest
 
 import slidetwin.readers.slideio_worker as worker
+import slidetwin.readers.worker as shared
 from slidetwin.core.errors import SlideMetadataError, SlideReadError
-from slidetwin.readers.slideio_worker import (
+from slidetwin.readers.slideio_worker import SceneInfo, SlideioWorker, scene_infos
+from slidetwin.readers.worker import (
     DAMAGED,
-    SceneInfo,
-    SlideioWorker,
     WorkerError,
-    block_header,
-    library_version,
     receive,
     request_block,
-    scene_infos,
     send,
     serve,
 )
 from tests.helpers.fake_slideio import LOG_LEVELS, pixels, scene_spec, write_spec
 
 FAKE = "tests.helpers.fake_slideio"
+ADAPTER = "slidetwin.readers.slideio_worker"
 
 
 @pytest.fixture
@@ -106,7 +102,7 @@ def test_gray_and_16_bit_blocks(tmp_path: Path) -> None:
     ("behaviour", "reason"),
     [
         ("error", r"\(RuntimeError\)"),
-        ("crash", r"\(the slideio worker stopped\)"),
+        ("crash", r"\(the worker stopped\)"),
     ],
 )
 def test_failed_opens(tmp_path: Path, behaviour: str, reason: str) -> None:
@@ -154,8 +150,8 @@ def test_a_worker_that_stops_while_opening_is_started_once_more(
 
 @pytest.mark.usefixtures("fake")
 def test_an_open_that_hangs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(worker, "TIMEOUT_S", 3.0)
-    monkeypatch.setattr(worker, "STOP_S", 0.2)
+    monkeypatch.setattr(shared, "TIMEOUT_S", 3.0)
+    monkeypatch.setattr(shared, "STOP_S", 0.2)
     with pytest.raises(SlideMetadataError, match=r"took longer than 3 s"):
         SlideioWorker(slide(tmp_path, open="hang"), "VSI", "s1")
 
@@ -166,7 +162,7 @@ def test_a_crash_fails_one_read_and_the_next_read_starts_a_new_worker(tmp_path: 
     w = SlideioWorker(slide(tmp_path, read="crash-once", marker=str(marker)), "VSI", "s1")
     first = pid(w)
     marker.touch()
-    with pytest.raises(SlideReadError, match=r"at level 2 \(the slideio worker stopped\)"):
+    with pytest.raises(SlideReadError, match=r"at level 2 \(the worker stopped\)"):
         w.read(0, 2, 0, 0, 16, 16)
     assert w._process is None
     np.testing.assert_array_equal(w.read(0, 2, 0, 0, 16, 16), pixels(0, 2, 0, 0, 16, 16))
@@ -204,8 +200,8 @@ def test_a_slide_that_changed_is_refused(tmp_path: Path) -> None:
 def test_a_read_that_hangs_is_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     w = SlideioWorker(slide(tmp_path, read="hang"), "VSI", "s1")
     process = w._process
-    monkeypatch.setattr(worker, "TIMEOUT_S", 1.0)
-    monkeypatch.setattr(worker, "STOP_S", 0.2)
+    monkeypatch.setattr(shared, "TIMEOUT_S", 1.0)
+    monkeypatch.setattr(shared, "STOP_S", 0.2)
     with pytest.raises(SlideReadError, match=r"took longer than 1 s"):
         w.read(0, 0, 0, 0, 8, 8)
     assert process is not None
@@ -252,112 +248,9 @@ def test_a_worker_that_cannot_be_told_what_to_open(
     def broken(conn: Connection, message: Any) -> None:
         raise BrokenPipeError
 
-    monkeypatch.setattr(worker, "send", broken)
-    with pytest.raises(SlideMetadataError, match=r"\(the slideio worker stopped\)"):
+    monkeypatch.setattr(shared, "send", broken)
+    with pytest.raises(SlideMetadataError, match=r"\(the worker stopped\)"):
         SlideioWorker(slide(tmp_path), "VSI", "s1")
-
-
-def test_a_missing_library() -> None:
-    assert library_version() == "2.10.0"
-    with pytest.raises(ModuleNotFoundError) as err:
-        library_version("slidetwin_no_such_library")
-    assert err.value.name == "slidetwin_no_such_library"
-
-
-# --- the protocol, with the test as the other end -----------------------------------------------
-
-
-@pytest.fixture
-def pipe() -> Iterator[tuple[Connection, Connection]]:
-    ours, theirs = Pipe()
-    yield ours, theirs
-    ours.close()
-    theirs.close()
-
-
-@pytest.mark.parametrize(
-    "data",
-    [b"not json", b"[" * 100_000, b'["ok"]', b'{"ok": 1, "error": "X"}', b'{"done": 1}'],
-)
-def test_damaged_messages(pipe: tuple[Connection, Connection], data: bytes) -> None:
-    ours, theirs = pipe
-    theirs.send_bytes(data)
-    with pytest.raises(WorkerError, match=DAMAGED) as err:
-        receive(ours, 1.0)
-    assert not err.value.reported
-    assert not err.value.stopped
-
-
-def test_reported_errors(pipe: tuple[Connection, Connection]) -> None:
-    ours, theirs = pipe
-    for error, shown in (("ValueError", "ValueError"), ("no such file /x", "an unknown error")):
-        send(theirs, {"error": error})
-        with pytest.raises(WorkerError, match=shown) as err:
-            receive(ours, 1.0)
-        assert err.value.reported
-    send(theirs, {"error": 7})
-    with pytest.raises(WorkerError, match="an unknown error"):
-        receive(ours, 1.0)
-
-
-def test_silent_stopped_and_oversized(pipe: tuple[Connection, Connection]) -> None:
-    ours, theirs = pipe
-    with pytest.raises(WorkerError, match=r"took longer than 0\.1 s") as err:
-        receive(ours, 0.1)
-    assert not err.value.stopped  # a worker that hangs is not started again at once
-    # only the length header of an oversized message: sending the body would block once the
-    # pipe's buffer is full (about 200 KB on CI runners), as nothing reads it
-    os.write(theirs.fileno(), struct.pack("!i", worker.MESSAGE_MAX + 1))
-    with pytest.raises(WorkerError, match=DAMAGED):
-        receive(ours, 1.0)
-    theirs.close()
-    other, end = Pipe()
-    end.close()
-    with pytest.raises(WorkerError, match="stopped") as err:
-        receive(other, 1.0)
-    assert err.value.stopped
-    other.close()
-    other, end = Pipe()
-    send(other, {"op": "read"})
-    end.close()  # it died with the request unread: the connection is reset
-    with pytest.raises(WorkerError, match="stopped") as err:
-        receive(other, 1.0)
-    assert err.value.stopped
-    other.close()
-
-
-@pytest.mark.parametrize(
-    "header",
-    [
-        None,
-        [],
-        {"dtype": "float64", "shape": [2, 3, 3]},
-        {"dtype": "uint8", "shape": [3, 2, 3]},
-        {"dtype": "uint8", "shape": [2, 3, 0]},
-        {"dtype": "uint8", "shape": [2, 3, 3, 1]},
-        {"dtype": "uint8", "shape": [2.0, 3, 3]},
-        {"dtype": ["uint8"], "shape": [2, 3, 3]},
-        {"dtype": "uint8", "shape": 6},
-        {"dtype": "uint8"},
-    ],
-)
-def test_block_headers(header: Any) -> None:
-    assert block_header({"dtype": "uint8", "shape": [2, 3, 3]}, (2, 3)) == ("uint8", (2, 3, 3))
-    assert block_header({"dtype": "int16", "shape": [2, 3]}, (2, 3)) == ("int16", (2, 3))
-    with pytest.raises(WorkerError, match=DAMAGED):
-        block_header(header, (2, 3))
-
-
-def test_a_block_shorter_than_announced(pipe: tuple[Connection, Connection]) -> None:
-    ours, theirs = pipe
-    send(theirs, {"ok": {"dtype": "uint8", "shape": [2, 2, 3]}})
-    theirs.send_bytes(b"\x00" * 11)
-    with pytest.raises(WorkerError, match=DAMAGED):
-        request_block(ours, {"op": "read"}, (2, 2))
-    assert json.loads(theirs.recv_bytes()) == {"op": "read"}
-    ours.close()
-    with pytest.raises(WorkerError, match="stopped"):
-        request_block(ours, {"op": "read"}, (2, 2))
 
 
 def good_scene(**change: Any) -> dict[str, Any]:
@@ -404,7 +297,8 @@ def test_scene_reports(change: dict[str, Any]) -> None:
 
 def run_serve(path: Path, driver: str = "VSI") -> tuple[Connection, threading.Thread]:
     ours, theirs = Pipe()
-    thread = threading.Thread(target=serve, args=(theirs, str(path), driver, FAKE))
+    options = {"driver": driver, "library": FAKE}
+    thread = threading.Thread(target=serve, args=(theirs, ADAPTER, str(path), options))
     thread.start()
     return ours, thread
 

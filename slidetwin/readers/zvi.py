@@ -29,7 +29,8 @@ from slidetwin.core.errors import SlideMetadataError
 from slidetwin.core.formats import CONVERT, NO_READER, FormatMatch
 from slidetwin.core.geometry import Point
 from slidetwin.core.slide_source import ReaderOptions
-from slidetwin.readers.slideio_worker import DTYPES, SceneInfo, SlideioWorker
+from slidetwin.readers.slideio_worker import SceneInfo, SlideioWorker
+from slidetwin.readers.worker import DTYPES
 
 STORAGE, STREAM, ROOT = 1, 2, 5  # OLE2 directory entry types
 BAND_ROWS = 256  # rows per read when the pixels are checked
