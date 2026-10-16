@@ -728,13 +728,16 @@ automatically.
 - **Set-up** (`.devcontainer/`, the official Python 3.12 dev container image).
   - `setup.sh` (`updateContentCommand`, before the editor connects) installs the package into
     `.venv`, so the server can start as soon as the editor attaches.
-  - `fetch.sh` (`postCreateCommand`, in the background) downloads the slides and stamps
-    `data/slides/.fetched` with the manifest's sha256. A failed download is reported, never
-    fatal: a failing step would skip the steps after it.
-  - `start.sh` (`postStartCommand` and `postAttachCommand`) starts the server unless
-    `/api/health` already answers, with a lock against a start and an attach racing. It resumes
-    the download when the stamp is missing or stale, since a stopped codespace never repeats
-    `postCreateCommand`. On attach it then follows the server log in the terminal.
+  - `start.sh` (`postCreateCommand`, `postStartCommand` and `postAttachCommand`) starts the
+    server unless `/api/health` already answers, with a lock against steps racing. It then runs
+    `fetch.sh` in the background while the manifest's stamp (`data/slides/.fetched`) is missing
+    or stale. The server therefore starts right after creation, before the 5.3 GB download: in
+    the first version it started only after the download (postStartCommand waits for
+    postCreateCommand), and the owner's first visit got HTTP 502. On attach it then follows the
+    server log in the terminal.
+  - `fetch.sh` downloads the slides and writes the stamp. A failed download is reported, never
+    fatal (a failing step would skip the steps after it), and the next start retries it.
+  - `status.sh` prints the server's health, the download state and the last log lines.
   - Lifecycle commands run under a terminal that closes when they return. A background job
     started with `setsid nohup ... &` was killed by that hangup in 3 of 3 local trials, so the
     server is forked with `setsid -f` (survived 3 of 3), with all streams redirected.

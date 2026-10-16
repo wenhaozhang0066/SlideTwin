@@ -2,7 +2,7 @@
   "name": "SlideTwin demo",
   "image": "mcr.microsoft.com/devcontainers/python:3-3.12-trixie",
   "updateContentCommand": "bash .devcontainer/setup.sh",
-  "postCreateCommand": "bash .devcontainer/fetch.sh",
+  "postCreateCommand": "bash .devcontainer/start.sh",
   "postStartCommand": "bash .devcontainer/start.sh",
   "postAttachCommand": "bash .devcontainer/start.sh --follow",
   "forwardPorts": [7860],

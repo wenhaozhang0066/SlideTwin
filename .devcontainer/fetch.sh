@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # GitHub Codespaces: download the manifest's demo slides (5.3 GB, sha256-checked) into
-# data/slides. Runs after creation (postCreateCommand). start.sh runs it again when an earlier
-# download did not finish, since a stopped codespace does not repeat postCreateCommand.
-# Never fails the step: a slide that is missing is reported when it is opened.
+# data/slides, in the background. start.sh runs it after starting the server, and again on later
+# starts until a download has finished. Never fails: a missing slide is reported when it is opened.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
