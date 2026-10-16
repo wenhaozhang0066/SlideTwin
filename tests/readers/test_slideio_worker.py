@@ -242,6 +242,22 @@ def test_start_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.usefixtures("fake")
+def test_a_worker_runs_the_servers_own_slidetwin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker takes the server's import path. If another slidetwin comes first on it after the
+    server imported its own (a script that adds another checkout), the worker would run that one;
+    here an empty decoy, without the worker module. The server's own package folder comes first."""
+    decoy = tmp_path / "decoy"
+    (decoy / "slidetwin").mkdir(parents=True)
+    (decoy / "slidetwin" / "__init__.py").write_text("")
+    monkeypatch.syspath_prepend(str(decoy))
+    w = SlideioWorker(slide(tmp_path), "VSI", "s1")
+    assert w.scenes == [INFO]
+    w.close()
+
+
+@pytest.mark.usefixtures("fake")
 def test_a_worker_that_cannot_be_told_what_to_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

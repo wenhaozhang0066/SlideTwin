@@ -53,6 +53,9 @@ DTYPES = frozenset({"uint8", "int16", "uint16"})  # sample types a worker may se
 # fails with that reason.
 TRUNCATED = 86
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")  # an exception type, a codec or a dtype
+# The folder that holds this slidetwin package. It comes first on a worker's import path, so the
+# worker runs the server's own code even if another slidetwin came first on sys.path later.
+_ROOT = str(Path(__file__).resolve().parents[2])
 # The worker's first lines: take the server's import path, then serve. Isolated mode (-I) keeps
 # the current folder and the environment out of the imports made before that.
 _BOOT = (
@@ -109,7 +112,7 @@ class Worker[Info]:
         parse: Callable[[Any], Info],
     ) -> None:
         self._start_message = {
-            "path": [p for p in sys.path if isinstance(p, str)],
+            "path": [_ROOT, *(p for p in sys.path if isinstance(p, str))],
             "file": str(path),
             "adapter": adapter,
             "options": options,
