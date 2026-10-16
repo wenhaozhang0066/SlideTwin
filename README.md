@@ -59,6 +59,37 @@ All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, UI unit test
 coverage gate). The browser tests need `pip install -e ".[dev,e2e]"` and
 `python -m playwright install chromium`; without them they are skipped.
 
+## Slide formats
+
+SlideTwin picks the reader from the file's content. A format without a reader it can trust is
+refused with a message that says how to convert the slide; it never guesses. "Experimental" formats
+were checked on synthetic files only and are served when the slide's manifest entry sets
+`experimental: true`. Readers marked (openslide) need `pip install "slidetwin[openslide]"`.
+
+| Format | Files | Served | Refused or experimental |
+|---|---|---|---|
+| Aperio SVS, and SVS exports (Grundium, KFBio) | `.svs` | JPEG, JPEG 2000 | |
+| Philips TIFF | `.tiff` | brightfield | |
+| Huron TIFF | `.tif` | brightfield | |
+| Generic pyramidal TIFF (libvips and others) | `.tif` | a clean pyramid with a plausible resolution | otherwise `mpp_override` is needed |
+| Hamamatsu NDPI (openslide) | `.ndpi` | brightfield JPEG, focal plane 0 | fluorescence, other planes |
+| Hamamatsu VMS / VMU (openslide) | `.vms`/`.vmu` and the files they name | VMS, single layer | VMU experimental |
+| 3DHistech MIRAX (openslide) | `.mrxs` and its folder | brightfield, one focal plane | fluorescence, JPEG XR tiles |
+| Sakura SVSlide (openslide) | `.svslide` | | experimental |
+| DICOM WSI | a series folder, or one level file | JPEG and JPEG 2000 (YBR_FULL_422) | JPEG XL, HTJ2K experimental |
+| Zeiss CZI | `.czi` | brightfield (JPEG XR, zstd), one slide per scene | fluorescence, z-stacks, multi-file |
+| Leica SCN | `.scn` | one brightfield region | several regions, z-stacks experimental; fluorescence refused |
+| Trestle TIFF | `.tif` | the layout checked on CMU-1 | |
+| Ventana BIF | `.bif` | VENTANA DP 200, one area | older iScan files |
+| ARGOS AVS | `.avs` | brightfield, a focal plane of a z-stack | |
+| OME-TIFF | `.ome.tif` | interleaved RGB | multichannel, planar, z-stacks |
+| Akoya QPTIFF | `.qptiff` | brightfield | fluorescence |
+
+Not supported: fluorescence and multiplex images, plain images (JPEG, PNG, JPEG 2000), Olympus
+VSI, Zeiss ZVI and Philips iSyntax (planned), and formats without an open reader (SQRAY SDPC,
+UNIC TMAP, KFBio KFB, Motic MDS/MDSX, DYJ). Labels, macro photos and embedded thumbnails are never
+read, whatever the format.
+
 ## The API in one minute
 
 Every action of a reading session is one HTTP call. Interactive docs are at `/docs`.

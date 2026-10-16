@@ -36,9 +36,34 @@ pytest -q
 uvicorn slidetwin.api.main:app --reload --port 7860
 ```
 
-在浏览器打开 http://localhost:7860/ 即可阅片；界面语言跟随浏览器，可随时切换。
+在浏览器打开 http://localhost:7860/ 即可阅片；界面默认英文，可随时切换为中文。
 
 与 CI 相同的全部检查：`bash scripts/ci_local.sh`。
+
+## 切片格式
+
+SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide) 的需要先 `pip install "slidetwin[openslide]"`。
+
+| 格式 | 文件 | 支持 | 拒绝或实验性 |
+|---|---|---|---|
+| Aperio SVS，以及 SVS 导出格式（Grundium、KFBio） | `.svs` | JPEG、JPEG 2000 | |
+| Philips TIFF | `.tiff` | 明场 | |
+| Huron TIFF | `.tif` | 明场 | |
+| 通用金字塔 TIFF（libvips 等） | `.tif` | 结构规整、分辨率可信的金字塔 | 否则需要 `mpp_override` |
+| Hamamatsu NDPI (openslide) | `.ndpi` | 明场 JPEG，焦平面 0 | 荧光、其他焦平面 |
+| Hamamatsu VMS / VMU (openslide) | `.vms`/`.vmu` 及其列出的文件 | 单层 VMS | VMU 实验性 |
+| 3DHistech MIRAX (openslide) | `.mrxs` 及同名文件夹 | 明场、单焦平面 | 荧光、JPEG XR 瓦片 |
+| Sakura SVSlide (openslide) | `.svslide` | | 实验性 |
+| DICOM WSI | 一个序列的文件夹，或其中一个层级文件 | JPEG、JPEG 2000（YBR_FULL_422） | JPEG XL、HTJ2K 实验性 |
+| Zeiss CZI | `.czi` | 明场（JPEG XR、zstd），一个场景一张切片 | 荧光、z-stack、多文件 |
+| Leica SCN | `.scn` | 单个明场区域 | 多区域、z-stack 实验性；荧光拒绝 |
+| Trestle TIFF | `.tif` | 已在 CMU-1 上验证的结构 | |
+| Ventana BIF | `.bif` | VENTANA DP 200，单个扫描区域 | 旧版 iScan 文件 |
+| ARGOS AVS | `.avs` | 明场，可选 z-stack 的焦平面 | |
+| OME-TIFF | `.ome.tif` | 交错存储的 RGB | 多通道、按平面存储、z-stack |
+| Akoya QPTIFF | `.qptiff` | 明场 | 荧光 |
+
+暂不支持：荧光与多重标记图像、普通图片（JPEG、PNG、JPEG 2000）、Olympus VSI、Zeiss ZVI 和 Philips iSyntax（已在计划中），以及没有开源读取器的格式（SQRAY SDPC、UNIC TMAP、KFBio KFB、Motic MDS/MDSX、DYJ）。无论哪种格式，标签、宏观照片和内嵌缩略图都不会被读取。
 
 ## MCP 与 agent
 

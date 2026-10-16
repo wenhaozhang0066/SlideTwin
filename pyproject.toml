@@ -40,6 +40,8 @@ dependencies = [
 
 [project.optional-dependencies]
 openslide = ["openslide-python>=1.4", "openslide-bin>=4.0.1.1"]
+slideio = ["slideio==2.10.0"]
+isyntax = ["pyisyntax==0.1.7"]
 llm = ["anthropic>=1.15,<2"]
 e2e = ["playwright>=1.45"]
 dev = [
@@ -53,6 +55,8 @@ dev = [
   "types-jsonschema>=4.20",
   "openslide-python>=1.4",
   "openslide-bin>=4.0.1.1",
+  "slideio==2.10.0",
+  "pyisyntax==0.1.7",
 ]
 
 [tool.hatch.version]
