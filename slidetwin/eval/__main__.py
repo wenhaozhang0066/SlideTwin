@@ -15,7 +15,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from slidetwin.core.config import ConfigStore
+from slidetwin.core.config import ConfigStore, default_config_dir
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.trajectory import load_trajectory
 from slidetwin.eval.annotations import parse_asap, to_geojson
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m slidetwin.eval", description=__doc__.split("\n")[0])
     p.add_argument("command", choices=["convert", "run", "evaluate", "calibrate"])
     p.add_argument("logs", nargs="*", type=Path, help="calibrate: trajectory files or folders")
-    p.add_argument("--config-dir", type=Path, default=Path("configs"))
+    p.add_argument("--config-dir", type=Path, default=default_config_dir())
     p.add_argument("--manifest", type=Path)
     p.add_argument("--slide-dir", type=Path, default=Path("data/slides"))
     p.add_argument("--cache-dir", type=Path, default=Path("cache"))

@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import yaml
 
+from slidetwin.core import config as config_mod
 from slidetwin.core.config import (
     ConfigStore,
     FlatCostModel,
@@ -204,3 +205,16 @@ def test_store_reports_unreadable_yaml(tmp_path: Path) -> None:
     (cfg / "profiles" / "viewer.yaml").write_text("id: [unclosed\n")
     with pytest.raises(ConfigError, match=r"Cannot read viewer\.yaml"):
         ConfigStore(cfg)
+
+
+def test_the_config_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert config_mod.default_config_dir({"SLIDETWIN_CONFIG_DIR": "/c"}) == Path("/c")
+    monkeypatch.chdir(tmp_path)
+    found = config_mod.default_config_dir({})  # the configs beside the package (a source tree)
+    assert found.is_absolute()
+    assert (found / "profiles" / "viewer.yaml").is_file()
+    (tmp_path / "configs" / "profiles").mkdir(parents=True)
+    assert config_mod.default_config_dir({}) == Path("configs")  # a local folder replaces them
+    shutil.rmtree(tmp_path / "configs")
+    monkeypatch.setattr(config_mod, "_PACKAGE", tmp_path / "site" / "slidetwin")
+    assert config_mod.default_config_dir({}) == Path("configs")  # none: loading names it

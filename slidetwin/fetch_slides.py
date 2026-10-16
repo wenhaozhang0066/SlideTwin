@@ -21,9 +21,12 @@ from pathlib import Path
 import httpx2 as httpx
 import yaml
 
+from slidetwin.core.config import default_config_dir
 from slidetwin.core.registry import SlideEntry, file_sha256, parse_manifest
 
 CHUNK = 8 << 20
+ATTEMPTS = 4
+RETRY_PAUSE_S = 10.0  # times the attempt number
 
 
 def _say(text: str) -> None:
@@ -32,12 +35,24 @@ def _say(text: str) -> None:
 
 def fetch_one(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
     """True when the slide is in place with the pinned hash (or no pin) afterwards. Any failure,
-    a read-only folder included, is reported and leaves no partial file; it never raises."""
-    try:
-        return _fetch(entry, slide_dir, client)
-    except (httpx.HTTPError, OSError) as err:
-        _say(f"{entry.id}: failed ({type(err).__name__}: {err})")
-        return False
+    a read-only folder included, is reported and leaves no partial file; it never raises. A
+    network error or a server error (5xx) is tried again after a growing pause."""
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return _fetch(entry, slide_dir, client)
+        except (httpx.HTTPError, OSError) as err:
+            _say(f"{entry.id}: failed ({type(err).__name__}: {err})")
+            if attempt == ATTEMPTS or not _passing(err):
+                return False
+            time.sleep(RETRY_PAUSE_S * attempt)
+    return False  # not reached
+
+
+def _passing(err: Exception) -> bool:
+    """Whether trying again may help: a network error or a server error, not a 4xx or a disk."""
+    if isinstance(err, httpx.HTTPStatusError):
+        return err.response.status_code >= 500
+    return isinstance(err, httpx.TransportError)
 
 
 def _fetch(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
@@ -94,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="python -m slidetwin.fetch_slides", description=__doc__.split("\n")[0]
     )
-    config_dir = Path(os.environ.get("SLIDETWIN_CONFIG_DIR", "configs"))
+    config_dir = default_config_dir()
     p.add_argument(
         "--manifest",
         type=Path,

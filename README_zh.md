@@ -30,7 +30,27 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M10 | 小型 demo：三张公开切片，共 0.9 GB | 完成 |
 | M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 计划中 |
 
-## 快速开始
+## 安装与运行
+
+```bash
+pip install ".[all]"        # 在仓库目录里安装，含全部读取器；开源时发布到 PyPI
+```
+
+`slidetwin` 命令：
+
+```bash
+slidetwin serve --demo                              # 下载 demo 的三张切片（0.9 GB）并启动服务
+slidetwin check /path/to/slide.svs                  # 查看 SlideTwin 能从切片里读到什么
+slidetwin manifest /path/to/slides -o manifest.yaml # 生成清单：不透明 id、哈希、格式，并列出拒绝原因
+slidetwin serve --slides /path/to/slides --manifest manifest.yaml
+slidetwin mcp --slides /path/to/slides --manifest manifest.yaml   # stdio 上的 MCP
+slidetwin replay logs/sessions/<id>.jsonl           # 回放一次阅片并报告差异
+slidetwin fetch --demo                              # 只下载
+```
+
+`serve` 默认监听 127.0.0.1:7860（`--host 0.0.0.0` 监听所有网卡）。本地 agent（例如 Claude Code）：`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest manifest.yaml`。阅片日志写在 `./logs`（`SLIDETWIN_LOG_DIR`）。规则档、协议和 demo 清单随包安装；`SLIDETWIN_CONFIG_DIR` 或工作目录下的 `configs/` 会替换它们。
+
+## 开发
 
 ```bash
 pip install -e ".[dev]"

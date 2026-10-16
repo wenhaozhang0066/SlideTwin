@@ -996,4 +996,22 @@ Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisi
     64-core node at load 40): one `Env` 32 actions per second (arrays) and 29 (JPEG); eight
     workers 182. Rendering takes most of a step.
   - `slidetwin/env.py` joins the 100% coverage gate.
+- **Packaged configs.** The wheel carries `configs/` as `slidetwin/configs` (hatch
+  `force-include`); the repository keeps the SPEC's layout. The folder is
+  `SLIDETWIN_CONFIG_DIR`, else `./configs`, else the installed one (in the package, or beside it
+  in a source tree).
+- **Command line** (`slidetwin`): `serve`, `mcp` (stdio), `check`, `manifest`, `replay`, `fetch`.
+  - `serve` listens on 127.0.0.1 unless `--host` says otherwise (the container entry point keeps
+    0.0.0.0). `--demo` means the packaged demo manifest, downloaded first.
+  - `manifest` gives each slide an opaque id (`s_` and 10 hex digits of its content hash) and
+    pins its hash and format; refused slides and duplicates are listed as comments. `check` and
+    `manifest` name the user's own files: unlike the server, they run for their owner only.
+  - The `all` extra installs every reader.
+- **Package test in CI.** The `package` job builds the sdist and the wheel from it, installs the
+  wheel in a fresh environment and uses it outside the repository (`scripts/smoke_wheel.sh`):
+  the packaged demo manifest, the CC0 slide, the web UI, a REST session, MCP over HTTP and over
+  stdio, and `Env`.
+- **Downloads try again.** `fetch_slides` retries a network or server error up to four times; a
+  4xx or a disk error is final.
+- `slidetwin/cli.py` and `slidetwin/scan.py` join the coverage gate.
 

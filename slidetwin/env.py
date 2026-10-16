@@ -51,7 +51,7 @@ from slidetwin.api.schemas import (
     PanRequest,
     ReportRequest,
 )
-from slidetwin.core.config import ConfigStore
+from slidetwin.core.config import ConfigStore, default_config_dir
 from slidetwin.core.errors import SlideTwinError
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
@@ -133,7 +133,7 @@ class Env:
         if image not in IMAGE_FORMATS:
             raise ValueError(f"image must be one of {IMAGE_FORMATS}, got {image!r}")
         env = os.environ
-        configs = Path(config_dir or env.get("SLIDETWIN_CONFIG_DIR") or "configs")
+        configs = Path(config_dir) if config_dir else default_config_dir()
         manifest = manifest or env.get("SLIDETWIN_MANIFEST") or configs / "slides" / "manifest.yaml"
         slide_dir = slide_dir or env.get("SLIDETWIN_SLIDE_DIR") or "data/slides"
         cache = cache_dir if cache_dir is not None else env.get("SLIDETWIN_CACHE_DIR", "cache")

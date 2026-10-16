@@ -315,6 +315,14 @@ and the log records the pixel hash with `jpeg_sha256: null`. A test compares a r
 `Env` with the same reading through REST: the logs match apart from times, client metadata,
 session ids and JPEG hashes. `VecEnv` runs one `Env` per spawned worker process.
 
+## Command line and package (M9)
+
+`slidetwin/cli.py` is the `slidetwin` command; its slide options become the server's environment
+variables, so `serve`, `mcp` and `replay` read paths exactly as the server does. `slidetwin/scan.py`
+opens a slide as the server would (router, reader, servable check) for `check` and `manifest`.
+`core/config.default_config_dir` finds the profiles, protocols and manifests: the configs are
+packaged into the wheel and found beside the package in a source tree.
+
 ## Agents (M4)
 
 `slidetwin/agents` runs locally and reaches a server only through its public interface.

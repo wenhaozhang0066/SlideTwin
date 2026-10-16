@@ -82,6 +82,38 @@ def test_fetch_checks_hashes_and_keeps_good_files(
     assert not fetch_slides.fetch_all([good, local], tmp_path, http)
 
 
+def test_fetch_tries_again_after_network_and_server_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(fetch_slides, "RETRY_PAUSE_S", 0.0)
+    good = entries()[0]
+    answers = iter(["dns", 503, "ok"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        answer = next(answers)
+        if answer == "dns":
+            raise httpx.ConnectError("Temporary failure in name resolution", request=request)
+        if answer == 503:
+            return httpx.Response(503)
+        return httpx.Response(200, content=DATA)
+
+    flaky = httpx.Client(transport=httpx.MockTransport(handler))
+    assert fetch_slides.fetch_one(good, tmp_path, flaky)
+    assert capsys.readouterr().err.count("failed (") == 2
+    calls: list[int] = []
+
+    def gone(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(404 if len(calls) < 9 else 500)
+
+    missing = httpx.Client(transport=httpx.MockTransport(gone))
+    assert not fetch_slides.fetch_one(entries()[3], tmp_path, missing)
+    assert len(calls) == 1  # a client error is final
+    calls[:] = [1] * 8
+    assert not fetch_slides.fetch_one(entries()[3], tmp_path, missing)
+    assert len(calls) == 8 + fetch_slides.ATTEMPTS  # a server error: every attempt, then give up
+
+
 def test_fetch_never_raises_on_a_read_only_folder(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

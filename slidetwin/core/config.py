@@ -9,6 +9,8 @@ import datetime
 import hashlib
 import json
 import math
+import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -280,6 +282,22 @@ def _read_yaml(path: Path) -> Any:
         return yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as err:
         raise ConfigError(f"Cannot read {path.name}: {err}") from None
+
+
+_PACKAGE = Path(__file__).resolve().parents[1]  # the slidetwin package
+
+
+def default_config_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """Where profiles, protocols and slide manifests are read: SLIDETWIN_CONFIG_DIR; else a
+    configs/ folder in the working directory (the repository and Docker layout); else the configs
+    installed with SlideTwin (a wheel carries them inside the package, a source tree beside it)."""
+    env = os.environ if environ is None else environ
+    if env.get("SLIDETWIN_CONFIG_DIR"):
+        return Path(env["SLIDETWIN_CONFIG_DIR"])
+    for candidate in (Path("configs"), _PACKAGE / "configs", _PACKAGE.parent / "configs"):
+        if (candidate / "profiles").is_dir():
+            return candidate
+    return Path("configs")  # none found: loading reports the folder it looked in
 
 
 class ConfigStore:

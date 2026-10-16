@@ -47,7 +47,32 @@ polygon and the report receipt](docs/media/reading.gif)
 | M10 | A small demo: three public slides, 0.9 GB | done |
 | M9 | pip package, `slidetwin` command, Python training interface | planned |
 
-## Quick start
+## Install and run
+
+```bash
+pip install ".[all]"        # from a checkout, with every reader; on PyPI at the open-source release
+```
+
+The `slidetwin` command:
+
+```bash
+slidetwin serve --demo                              # download the demo's slides (0.9 GB), serve them
+slidetwin check /path/to/slide.svs                  # what SlideTwin reads in a slide
+slidetwin manifest /path/to/slides -o manifest.yaml # opaque ids, hashes, formats; refusals listed
+slidetwin serve --slides /path/to/slides --manifest manifest.yaml
+slidetwin mcp --slides /path/to/slides --manifest manifest.yaml   # MCP over stdio
+slidetwin replay logs/sessions/<id>.jsonl           # replay a reading, report differences
+slidetwin fetch --demo                              # download only
+```
+
+`serve` listens on 127.0.0.1:7860 (`--host 0.0.0.0` for every interface); open
+http://localhost:7860/ to read a slide in the browser. For a local agent, e.g. Claude Code:
+`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest manifest.yaml`.
+Readings are logged under `./logs` (`SLIDETWIN_LOG_DIR`). The profiles, the protocol and the demo
+manifest come with the package; `SLIDETWIN_CONFIG_DIR` or a `configs/` folder in the working
+directory replace them.
+
+## Development
 
 ```bash
 pip install -e ".[dev]"
@@ -55,8 +80,6 @@ python scripts/fetch_test_data.py           # 1.9 MB CC0 test slide
 pytest -q
 uvicorn slidetwin.api.main:app --reload --port 7860
 ```
-
-Open http://localhost:7860/ to read a slide in the browser, or use the API below.
 
 All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, UI unit tests, pytest with the
 coverage gate). The browser tests need `pip install -e ".[dev,e2e]"` and

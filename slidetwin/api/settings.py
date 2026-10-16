@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from slidetwin.core.config import default_config_dir
 from slidetwin.core.errors import ConfigError
 
 # The server answers only requests addressed to these hosts (DNS rebinding protection, on by
@@ -66,7 +67,8 @@ class Settings:
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
         """Paths default to the working-directory layout of the repository and Docker image.
 
-        SLIDETWIN_CONFIG_DIR         configs          profiles, protocols, slide manifest
+        SLIDETWIN_CONFIG_DIR         configs          profiles, protocols, slide manifests
+                                                      (else ./configs or the installed ones)
         SLIDETWIN_MANIFEST           <config>/slides/manifest.yaml
         SLIDETWIN_SLIDE_DIR          data/slides      root for manifest paths
         SLIDETWIN_LOG_DIR            logs             trajectories and served images (required)
@@ -83,7 +85,7 @@ class Settings:
         SLIDETWIN_RATE_LIMIT_CLIENT_HEADER  (peer)    header whose last entry names the client
         """
         env = os.environ if environ is None else environ
-        config_dir = Path(env.get("SLIDETWIN_CONFIG_DIR", "configs"))
+        config_dir = default_config_dir(env)
         cache_dir = env.get("SLIDETWIN_CACHE_DIR", "cache")
         log_dir = env.get("SLIDETWIN_LOG_DIR", "logs")
         if not log_dir:
