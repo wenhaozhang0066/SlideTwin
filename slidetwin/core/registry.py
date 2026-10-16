@@ -7,13 +7,14 @@ fields (the id above all, which every reader sees) must not repeat any eval_only
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import tempfile
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -169,6 +170,7 @@ class SlideRegistry:
         self._open: dict[str, RegisteredSlide] = {}
         self._lock = threading.Lock()
         self._slide_locks: dict[str, threading.Lock] = {}
+        self._cache_lock = threading.Lock()
 
     @classmethod
     def from_manifest(
@@ -226,7 +228,13 @@ class SlideRegistry:
         path = self._slide_dir / entry.path
         override = (entry.mpp_override.x, entry.mpp_override.y) if entry.mpp_override else None
         if entry.backend == "auto":
-            source = _open_auto(path, entry, override)
+            try:
+                source = _open_auto(path, entry, override)
+            except OSError:  # unreadable (permissions, I/O error): never name the file
+                raise SlideNotFound(
+                    f"The file for slide '{entry.id}' could not be read.",
+                    hint="Check that the slide's files are readable by the server.",
+                ) from None
         elif entry.options() != ReaderOptions() or entry.fileset_sha256 is not None:
             raise ConfigError(
                 f"Slide '{entry.id}': scene, plane, channels, experimental and fileset_sha256 "
@@ -257,29 +265,49 @@ class SlideRegistry:
             if entry.fileset_sha256 is not None:
                 raise ConfigError(f"Slide '{entry.id}' is a single file: use sha256.")
             return entry.sha256 if entry.sha256 is not None else self._cached_sha256(path)
+        if entry.sha256 is not None and entry.fileset_sha256 is None:
+            raise ConfigError(
+                f"Slide '{entry.id}' is made of several files, and sha256 covers only the first.",
+                hint="Pin the whole slide with fileset_sha256 instead.",
+            )
         root, files = fileset
         rels = check_complete(root, files, entry.id)
-        pinned = entry.fileset_sha256 is not None
-        digest = fileset_sha256(root, rels, file_sha256 if pinned else self._cached_sha256)
-        if pinned and digest != entry.fileset_sha256:
-            raise _mismatch(entry.id, "fileset_sha256")
-        return digest
+        if entry.fileset_sha256 is not None:
+            digest = fileset_sha256(root, rels, file_sha256)
+            if digest != entry.fileset_sha256:
+                raise _mismatch(entry.id, "fileset_sha256")
+            return digest
+        with self._hash_cache() as cached:
+            return fileset_sha256(root, rels, cached)
 
     def _cached_sha256(self, path: Path) -> str:
-        """File hash, cached on disk by (real path, size, mtime, inode). The cache is a hint only:
-        malformed content is ignored and write failures are not fatal."""
-        st = path.stat()
-        key = f"{os.path.realpath(path)}|{st.st_size}|{st.st_mtime_ns}|{st.st_ino}"
+        with self._hash_cache() as cached:
+            return cached(path)
+
+    @contextlib.contextmanager
+    def _hash_cache(self) -> Iterator[Callable[[Path], str]]:
+        """File hashes, cached on disk by (real path, size, mtime, inode). The cache is read once
+        and written once per slide, so a file set of thousands of files costs one pass. Hashing
+        runs outside the lock; the write merges with what other opens wrote meanwhile, so none of
+        their entries is lost. The cache is a hint only: malformed content is ignored and write
+        failures are not fatal."""
         cache_file = self._cache_dir / "slide_sha256.json" if self._cache_dir else None
-        cache = self._read_cache(cache_file)
-        cached = cache.get(key)
-        if cached is not None:
-            return cached
-        digest = file_sha256(path)
-        if cache_file is not None:
-            cache[key] = digest
-            self._write_cache(cache_file, cache)
-        return digest
+        with self._cache_lock:
+            cache = self._read_cache(cache_file)
+        added: dict[str, str] = {}
+
+        def cached(path: Path) -> str:
+            st = path.stat()
+            key = f"{os.path.realpath(path)}|{st.st_size}|{st.st_mtime_ns}|{st.st_ino}"
+            digest = cache.get(key) or added.get(key)
+            if digest is None:
+                digest = added[key] = file_sha256(path)
+            return digest
+
+        yield cached
+        if added and cache_file is not None:
+            with self._cache_lock:
+                self._write_cache(cache_file, {**self._read_cache(cache_file), **added})
 
     @staticmethod
     def _read_cache(cache_file: Path | None) -> dict[str, str]:

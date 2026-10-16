@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
+import json
 import shutil
 import sys
 import urllib.request
@@ -149,12 +151,18 @@ def target_of(dest: Path, item: dict[str, object]) -> Path:
 
 
 def _download(url: str, out: Path, sha256: str) -> bool:
+    """Download to a temporary name and keep the file only if its hash matches."""
     tmp = out.with_name(out.name + ".part")
     out.parent.mkdir(parents=True, exist_ok=True)
     print(f"fetch   {url}")
-    with urllib.request.urlopen(url, timeout=300) as resp, tmp.open("wb") as f:
-        while chunk := resp.read(1 << 20):
-            f.write(chunk)
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp, tmp.open("wb") as f:
+            while chunk := resp.read(1 << 20):
+                f.write(chunk)
+    except (OSError, http.client.HTTPException) as err:  # URLError is an OSError
+        tmp.unlink(missing_ok=True)
+        print(f"error   {url}: {type(err).__name__}: {err}", file=sys.stderr)
+        return False
     digest = sha256_of(tmp)
     if digest != sha256:
         tmp.unlink()
@@ -164,38 +172,65 @@ def _download(url: str, out: Path, sha256: str) -> bool:
     return True
 
 
-def _extract(archive: Path, folder: Path) -> None:
-    """Extract every member under `folder`; members with absolute paths or '..' are refused."""
+def _extract(archive: Path, folder: Path) -> list[list[object]]:
+    """Extract every member under `folder`; members with absolute paths or '..' are refused.
+    Returns the extracted files and their sizes, kept in the stamp to check later runs."""
     tmp = folder.with_name(folder.name + ".part")
     shutil.rmtree(tmp, ignore_errors=True)
-    with zipfile.ZipFile(archive) as zf:
-        for member in zf.infolist():
-            name = PurePosixPath(member.filename)
-            if name.is_absolute() or ".." in name.parts:
-                raise ValueError(f"unsafe member {member.filename!r} in {archive.name}")
-        zf.extractall(tmp)
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.infolist():
+                name = PurePosixPath(member.filename)
+                if name.is_absolute() or ".." in name.parts:
+                    raise ValueError(f"unsafe member {member.filename!r} in {archive.name}")
+            zf.extractall(tmp)
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     shutil.rmtree(folder, ignore_errors=True)
     tmp.replace(folder)
+    files = sorted(p for p in folder.rglob("*") if p.is_file())
+    return [[p.relative_to(folder).as_posix(), p.stat().st_size] for p in files]
+
+
+def _extracted_ok(folder: Path, stamp: Path, sha: str) -> bool:
+    """The stamp names this archive, and every extracted file is still there at its size."""
+    try:
+        record = json.loads(stamp.read_text())
+        return record["archive_sha256"] == sha and all(
+            (folder / rel).is_file() and (folder / rel).stat().st_size == size
+            for rel, size in record["files"]
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def fetch(item: dict[str, object], dest: Path) -> bool:
+    """Fetch one item; a failure is reported and leaves no partial or stale file behind."""
     target = target_of(dest, item)
     sha = str(item["sha256"])
     if str(item["path"]).endswith(".zip"):
         stamp = target / ".archive-sha256"
-        if stamp.is_file() and stamp.read_text().strip() == sha:
+        if _extracted_ok(target, stamp, sha):
             print(f"ok      {target}")
             return True
         archive = target.with_name(target.name + ".zip")
         if not _download(str(item["url"]), archive, sha):
             return False
-        _extract(archive, target)
-        archive.unlink()
-        stamp.write_text(sha + "\n")
+        try:
+            files = _extract(archive, target)
+        except (OSError, ValueError, zipfile.BadZipFile) as err:
+            print(f"error   {archive.name}: {type(err).__name__}: {err}", file=sys.stderr)
+            return False
+        finally:
+            archive.unlink(missing_ok=True)
+        stamp.write_text(json.dumps({"archive_sha256": sha, "files": files}) + "\n")
     else:
-        if target.is_file() and sha256_of(target) == sha:
-            print(f"ok      {target}")
-            return True
+        if target.is_file():
+            if sha256_of(target) == sha:
+                print(f"ok      {target}")
+                return True
+            target.unlink()  # a stale or damaged copy must not be used by the tests
         if not _download(str(item["url"]), target, sha):
             return False
     print(f"saved   {target}")

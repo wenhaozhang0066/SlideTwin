@@ -8,6 +8,7 @@ way to convert them. Errors name the slide id and the format, never a file name.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def sniff(path: Path, name: str = "slide") -> FormatMatch:
             f"The file for slide '{name}' was not found.",
             hint="Check SLIDETWIN_SLIDE_DIR and the path in configs/slides/manifest.yaml.",
         )
-    with path.open("rb") as f:
+    with path.open("rb") as f:  # an OSError (unreadable) is reported by the registry
         head = f.read(512)
     if head[128:132] == b"DICM":  # also dual-personality DICOM/TIFF files
         return FormatMatch("dicom", "wsidicom")
@@ -106,9 +107,67 @@ def _is_dicom(path: Path) -> bool:
         return f.read(132)[128:132] == b"DICM"
 
 
+# Limits checked before tifffile parses a TIFF: it loads every page's tile offsets into memory,
+# about 20 bytes per declared tile, so a crafted header could ask for gigabytes.
+MAX_TILES = 1 << 22  # tiles or strips per page: 4 million, a 500k x 500k px level of 256 px tiles
+MAX_PIXELS = 1 << 40  # pixels per page: about 10^12
+MAX_PAGES = 4096
+_TILE_TAGS = {273, 279, 324, 325}  # StripOffsets, StripByteCounts, TileOffsets, TileByteCounts
+
+
+def check_tiff_size(path: Path, name: str) -> None:
+    """Refuse a TIFF whose pages declare implausibly many tiles or pixels, before any reader
+    loads them. Only top-level pages that parse as classic or BigTIFF IFDs are judged; where the
+    structure is unusual (NDPI's offsets above 4 GB, damage), tifffile decides."""
+    with path.open("rb") as f:
+        head = f.read(16)
+        o = "<" if head[:2] == b"II" else ">"
+        big = struct.unpack(o + "H", head[2:4])[0] == 43
+        # BigTIFF: 8-byte entry counts, counts, values and offsets; classic TIFF: 2, 4, 4, 4.
+        n_fmt, word = ("Q", "Q") if big else ("H", "I")
+        n_size, w = struct.calcsize(n_fmt), struct.calcsize(word)
+        entry = 4 + 2 * w
+        offset = struct.unpack(o + word, head[8:16] if big else head[4:8])[0]
+        seen: set[int] = set()
+        while offset and offset not in seen and len(seen) < MAX_PAGES:
+            seen.add(offset)
+            f.seek(offset)
+            raw = f.read(n_size)
+            n = struct.unpack(o + n_fmt, raw)[0] if len(raw) == n_size else 0
+            data = f.read(n * entry) if 0 < n <= 4096 else b""
+            if not data or len(data) < n * entry:
+                return
+            if _too_large(data, n, entry, o, word):
+                raise SlideMetadataError(
+                    f"Slide '{name}' is a TIFF that declares implausibly many tiles or pixels.",
+                    hint="The file may be damaged; SlideTwin does not open it.",
+                )
+            raw = f.read(w)
+            offset = struct.unpack(o + word, raw)[0] if len(raw) == w else 0
+
+
+def _too_large(data: bytes, n: int, entry: int, o: str, word: str) -> bool:
+    """Whether one IFD's tile or strip arrays, or its pixel count, exceed the limits."""
+    w = struct.calcsize(word)
+    counts: dict[int, int] = {}
+    dims: dict[int, int] = {}
+    for at in range(0, n * entry, entry):
+        tag, kind = struct.unpack(o + "HH", data[at : at + 4])
+        number = struct.unpack(o + word, data[at + 4 : at + 4 + w])[0]
+        if tag in _TILE_TAGS:
+            counts[tag] = number
+        elif tag in (256, 257) and number == 1 and kind in (3, 4):  # SHORT or LONG
+            fmt = "H" if kind == 3 else "I"
+            size = struct.calcsize(fmt)
+            dims[tag] = struct.unpack(o + fmt, data[at + 4 + w : at + 4 + w + size])[0]
+    pixels = dims.get(256, 0) * dims.get(257, 0)
+    return max(counts.values(), default=0) > MAX_TILES or pixels > MAX_PIXELS
+
+
 def _sniff_tiff(path: Path, name: str) -> FormatMatch:
     import tifffile
 
+    check_tiff_size(path, name)
     try:
         with tifffile.TiffFile(path) as tif:
             page = tif.pages.first

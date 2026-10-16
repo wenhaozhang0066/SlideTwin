@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ import pytest
 import tifffile
 
 from slidetwin.core.errors import SlideMetadataError, SlideNotFound
-from slidetwin.core.formats import FormatMatch, sniff
+from slidetwin.core.formats import MAX_TILES, FormatMatch, check_tiff_size, sniff
 
 RGB = np.full((64, 64, 3), 200, dtype=np.uint8)
 
@@ -123,3 +124,41 @@ def test_missing_and_damaged_files_name_only_the_slide(tmp_path: Path) -> None:
     with pytest.raises(SlideMetadataError, match="Slide 'pub_1' is not a readable TIFF") as err2:
         sniff(broken, "pub_1")
     assert "secret" not in err2.value.message
+
+
+def ifd_tiff(
+    entries: list[tuple[int, int, int, int]], *, big: bool = False, next_ifd: int = 0
+) -> bytes:
+    """A minimal little-endian TIFF with one IFD of (tag, type, count, value) entries."""
+    if big:
+        head = b"II+\x00" + struct.pack("<HHQ", 8, 0, 16)
+        body = struct.pack("<Q", len(entries))
+        body += b"".join(struct.pack("<HHQQ", *e) for e in entries)
+        return head + body + struct.pack("<Q", next_ifd)
+    head = b"II*\x00" + struct.pack("<I", 8)
+    body = struct.pack("<H", len(entries)) + b"".join(struct.pack("<HHII", *e) for e in entries)
+    return head + body + struct.pack("<I", next_ifd)
+
+
+@pytest.mark.parametrize("big", [False, True])
+def test_tiffs_declaring_huge_arrays_are_refused_before_parsing(tmp_path: Path, big: bool) -> None:
+    tiles = ifd_tiff([(256, 4, 1, 1024), (257, 4, 1, 1024), (324, 4, MAX_TILES + 1, 4096)], big=big)
+    pixels = ifd_tiff([(256, 4, 1, 1 << 21), (257, 4, 1, 1 << 20), (324, 4, 1, 4096)], big=big)
+    for data in (tiles, pixels):
+        path = write(tmp_path / "x.tif", data)
+        with pytest.raises(SlideMetadataError, match="implausibly many"):
+            check_tiff_size(path, "s1")
+        with pytest.raises(SlideMetadataError, match="implausibly many"):
+            sniff(path, "s1")  # before tifffile loads the arrays
+    short = ifd_tiff([(256, 3, 1, 512), (257, 3, 1, 512), (324, 4, 64, 4096)], big=big)
+    check_tiff_size(write(tmp_path / "ok.tif", short), "s1")  # plausible: tifffile decides
+
+
+def test_unusual_ifds_are_left_to_tifffile(tmp_path: Path) -> None:
+    looped = ifd_tiff([(256, 4, 1, 64)], next_ifd=8)  # the next IFD is itself
+    empty = ifd_tiff([])
+    truncated = ifd_tiff([(256, 4, 1, 64), (257, 4, 1, 64)])[:20]
+    no_count = b"II*\x00" + struct.pack("<I", 4096)  # the IFD lies past the end
+    no_next = ifd_tiff([(256, 4, 1, 64)])[:-2]  # the next-IFD pointer is cut short
+    for i, data in enumerate((looped, empty, truncated, no_count, no_next)):
+        check_tiff_size(write(tmp_path / f"u{i}.tif", data), "s1")  # returns, never loops

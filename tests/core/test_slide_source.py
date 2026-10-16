@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -190,3 +191,12 @@ def test_sources_without_the_optional_members_get_defaults() -> None:
     assert source_provenance(src) == {"reader": "custom", "versions": {"custom": "2.1"}}
     assert source_level_transforms(src) == (LevelTransform(1.0, 1.0), LevelTransform(4.0, 4.0))
     assert source_level_mpps(src) == ((0.5, 0.5), (2.0, 2.0))
+
+
+def test_openslide_backend_without_the_library(
+    tiff_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "openslide", None)  # as on a base install
+    with pytest.raises(SlideMetadataError, match="not installed") as err:
+        open_slide(tiff_path, backend="openslide", name="s1")
+    assert "slidetwin[openslide]" in (err.value.hint or "")

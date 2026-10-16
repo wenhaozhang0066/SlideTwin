@@ -47,6 +47,7 @@ e2e = ["playwright>=1.45"]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
+  "pytest-timeout>=2.3",
   "hypothesis>=6.100",
   "ruff>=0.6",
   "mypy>=1.11",
@@ -88,6 +89,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+timeout = 300  # pytest-timeout: a test stuck this long fails with every thread's stack
 markers = [
   "testdata: needs test slides fetched by scripts/fetch_test_data.py",
   "camelyon: needs local CAMELYON16 slides (set SLIDETWIN_CAMELYON_DIR)",

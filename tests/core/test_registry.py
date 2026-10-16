@@ -286,10 +286,15 @@ def test_file_sets_are_hashed_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     bad = [
         entry(id="c", path="s.mrxs", fileset_sha256="0" * 64),
         entry(id="d", path="s.mrxs", sha256="0" * 64),
+        entry(id="d2", path="s.mrxs", sha256=mrxs_hash),  # covers the entry file only
     ]
     reg = SlideRegistry(bad, root)
-    for slide_id, field in (("c", "fileset_sha256"), ("d", "sha256")):
-        with pytest.raises(SlideIntegrityError, match=field):
+    for slide_id, error, text in (
+        ("c", SlideIntegrityError, "fileset_sha256"),
+        ("d", SlideIntegrityError, "sha256"),
+        ("d2", ConfigError, "made of several files"),
+    ):
+        with pytest.raises(error, match=text):
             reg.get(slide_id)
         assert opened[-1].closed  # a refused slide's handle is closed
     (root / "s" / "Data0000.dat").unlink()
@@ -307,3 +312,58 @@ def test_pins_must_fit_the_slide(
     monkeypatch.setattr(registry_mod, "_open_auto", lambda *a: folder_source)
     with pytest.raises(ConfigError, match="is a folder"):
         SlideRegistry([entry(id="f", path="series", sha256="0" * 64)], tmp_path).get("f")
+
+
+def test_hash_cache_is_read_and_written_once_and_merges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sets = {}
+    for name in ("a", "b"):
+        root = tmp_path / name
+        root.mkdir()
+        for i in range(40):
+            (root / f"f{i:02d}.dat").write_bytes(f"{name}{i}".encode())
+        sets[name] = (root, tuple(f"f{i:02d}.dat" for i in range(40)))
+    monkeypatch.setattr(
+        registry_mod, "_open_auto", lambda path, e, o: _SetSource(*sets[e.path.split("/")[0]])
+    )
+    reads, writes = [0], [0]
+    real_read, real_write = SlideRegistry._read_cache, SlideRegistry._write_cache
+    monkeypatch.setattr(
+        SlideRegistry,
+        "_read_cache",
+        staticmethod(lambda f: reads.__setitem__(0, reads[0] + 1) or real_read(f)),
+    )
+    monkeypatch.setattr(
+        SlideRegistry,
+        "_write_cache",
+        staticmethod(lambda f, c: writes.__setitem__(0, writes[0] + 1) or real_write(f, c)),
+    )
+    cache = tmp_path / "cache"
+    one = SlideRegistry([entry(id="a", path="a/f00.dat")], tmp_path, cache_dir=cache)
+    two = SlideRegistry([entry(id="b", path="b/f00.dat")], tmp_path, cache_dir=cache)
+    one.get("a")
+    assert (reads[0], writes[0]) == (2, 1)  # once before hashing, once to merge: not per file
+    two.get("b")  # another registry (another process) writes in between: nothing is lost
+    stored = json.loads((cache / "slide_sha256.json").read_text())
+    assert len(stored) == 80
+
+
+def test_unreadable_slides_are_not_found_without_their_path(tmp_path: Path) -> None:
+    secret = tmp_path / "patient_SECRET.tif"
+    write_pyramid_tiff(secret, pyramid(line_image(64, 64, (1,), (1,)), 1), 0.5)
+    secret.chmod(0)
+    folder = tmp_path / "series_SECRET"
+    folder.mkdir()
+    folder.chmod(0)
+    reg = SlideRegistry(
+        [entry(id="f", path=secret.name), entry(id="d", path=folder.name)], tmp_path
+    )
+    try:
+        for slide_id in ("f", "d"):
+            with pytest.raises(SlideNotFound, match="could not be read") as err:
+                reg.get(slide_id)
+            assert "SECRET" not in err.value.message
+    finally:
+        secret.chmod(0o644)
+        folder.chmod(0o755)

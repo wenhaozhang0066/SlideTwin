@@ -305,7 +305,13 @@ class OpenSlideSource(BaseSource):
     """Optional reader (OpenSlide C library via openslide-bin)."""
 
     def __init__(self, path: Path, *, name: str, mpp_override: Point | None = None) -> None:
-        import openslide
+        try:
+            import openslide
+        except ModuleNotFoundError:
+            raise SlideMetadataError(
+                f"Slide '{name}' uses backend openslide, which is not installed.",
+                hint='Install it with pip install "slidetwin[openslide]".',
+            ) from None
 
         slide = _open_backend(lambda: openslide.OpenSlide(str(path)), name, "openslide")
         try:
