@@ -213,6 +213,7 @@ def test_mrxs_incomplete_sets_are_refused(tmp_path: Path) -> None:
             "FILE_7 = ../Data0007.dat",
             "names a file SlideTwin will not open",
         ),
+        ("FILE_7 = Data0007.dat", "FILE_7 = Data0007.dat ", "spaces that OpenSlide"),
         ("FILE_COUNT = 19", "FILE_COUNT = many", "cannot be read \\(ValueError\\)"),
         ("[DATAFILE]", "[DATAFILES]", "cannot be read \\(KeyError\\)"),
     ],
@@ -249,7 +250,8 @@ def test_mrxs_file_set_is_hashed_and_pinned_by_the_registry(tmp_path: Path) -> N
         manifest.write_text(yaml.safe_dump({"slides": [{**entry, "fileset_sha256": pinned}]}))
         registry = SlideRegistry.from_manifest(manifest, tmp_path)
         if error is None:
-            assert registry.get("mrxs1").sha256 == expected
+            reg = registry.get("mrxs1")
+            assert (reg.sha256, reg.fileset_sha256) == (file_sha256(path), expected)
         else:
             with pytest.raises(error):
                 registry.get("mrxs1")
@@ -472,6 +474,11 @@ def test_vms_without_optimisation_and_macro_entries(tmp_path: Path) -> None:
         (["NoLayers=two"], "cannot be read \\(ValueError\\)"),
         (["ImageFile(1,1)=../x.jpg"], "names a file SlideTwin will not open"),
         (["ImageFile(1,1)=x\udcff.jpg"], "not a valid UTF-8 name"),
+        # GLib keeps these spaces where configparser strips them: another file for OpenSlide
+        (["ImageFile(1,1)=x.jpg "], "spaces that OpenSlide"),
+        (["ImageFile(1,1)=\u00a0x.jpg"], "spaces that OpenSlide"),
+        (["ImageFile(1,1)\u2003=x.jpg"], "spaces that OpenSlide"),
+        (["\u00a0NoLayers=1"], "spaces that OpenSlide"),
     ],
 )
 def test_vms_index_outside_the_validated_case(

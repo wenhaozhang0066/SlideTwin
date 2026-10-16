@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import struct
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -265,7 +266,9 @@ def test_silent_stopped_and_oversized(pipe: tuple[Connection, Connection]) -> No
     ours, theirs = pipe
     with pytest.raises(WorkerError, match=r"took longer than 0\.1 s"):
         receive(ours, 0.1)
-    theirs.send_bytes(b"x" * (worker.MESSAGE_MAX + 1))
+    # only the length header of an oversized message: sending the body would block once the
+    # pipe's buffer is full (about 200 KB on CI runners), as nothing reads it
+    os.write(theirs.fileno(), struct.pack("!i", worker.MESSAGE_MAX + 1))
     with pytest.raises(WorkerError, match=DAMAGED):
         receive(ours, 1.0)
     theirs.close()

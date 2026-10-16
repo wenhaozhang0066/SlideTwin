@@ -21,6 +21,7 @@ from slidetwin.core.geometry import (
     extent_transforms,
     format_mag,
     fov_um,
+    integer_transforms,
     is_mag_available,
     level_mpps,
     mag_for_mpp,
@@ -371,6 +372,20 @@ def test_extent_transforms_are_d13() -> None:
     assert transforms[1] == LevelTransform(2.0, 2.0)
     assert transforms[2] == LevelTransform(1000 / 126, 800 / 99)
     assert transform_mpps(transforms, (0.5, 0.25)) == level_mpps(dims[0], dims, (0.5, 0.25))
+
+
+def test_integer_transforms_take_the_exact_scale() -> None:
+    dims = [
+        (46000, 32914),
+        (11500, 8228),  # floor of / 4 (SVS); the extent ratio of y would be 4.0002
+        (2875, 2058),  # ceil of / 16 in y (libvips, QuPath)
+        (23000, 16457),  # exactly / 2
+        (13800, 9874),  # 46000 / 3.33: no integer k
+        (11500, 6000),  # x is / 4 but y is not
+    ]
+    t = integer_transforms(dims)
+    assert t[:4] == tuple(LevelTransform(k, k) for k in (1.0, 4.0, 16.0, 2.0))
+    assert t[4:] == extent_transforms(dims[0], dims[4:])
 
 
 @pytest.mark.parametrize(

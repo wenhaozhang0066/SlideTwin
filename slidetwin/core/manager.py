@@ -140,6 +140,7 @@ class SessionManager:
                 slide_id=slide.slide_id,
                 source=slide.source,
                 slide_sha256=slide.sha256,
+                slide_fileset_sha256=slide.fileset_sha256,
                 profile=prof,
                 protocol=proto,
                 actor=actor,

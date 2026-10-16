@@ -373,6 +373,7 @@ class Session:
         source: SlideSource,
         slide_sha256: str,
         profile: Profile,
+        slide_fileset_sha256: str | None = None,
         protocol: Protocol,
         actor: str,
         images: ImageStore,
@@ -389,6 +390,7 @@ class Session:
         self.protocol = protocol
         self._source = source
         self._slide_sha256 = slide_sha256
+        self._slide_fileset_sha256 = slide_fileset_sha256
         self._images = images
         self._wall_ms = wall_ms or (lambda: time.time_ns() // 1_000_000)
         self._lock = threading.RLock()
@@ -895,6 +897,12 @@ class Session:
                 "dimensions_px": list(self._source.dimensions),
                 "backend": self._source.backend,
                 "provenance": source_provenance(self._source),
+                # a slide made of several files: the hash of every file it needs (D9, M8)
+                **(
+                    {"fileset_sha256": self._slide_fileset_sha256}
+                    if self._slide_fileset_sha256 is not None
+                    else {}
+                ),
             },
             "profile": {
                 "id": self.profile.id,

@@ -15,7 +15,7 @@ from typing import Any
 from xml.etree import ElementTree
 
 from slidetwin.core.formats import FormatMatch
-from slidetwin.core.geometry import Point
+from slidetwin.core.geometry import Point, integer_transforms
 from slidetwin.core.slide_source import ReaderOptions
 from slidetwin.readers.tiffpages import (
     TiffPagesSource,
@@ -89,6 +89,13 @@ def _mpp(pixels: Any) -> tuple[float, float] | None:
 def _build(tif: Any, name: str, override: Point | None, options: ReaderOptions) -> TiffPagesSource:
     root = ElementTree.fromstring(tif.ome_metadata)
     pixels = _main_pixels(root, name)
+    if sum(1 for series in tif.series if len(series.levels) > 1) > 1:
+        raise refusal(  # serving the largest alone would hide the other tissue regions
+            name,
+            FORMAT,
+            "holds more than one image pyramid (several regions); SlideTwin serves one per file.",
+            hint="Export each region as its own OME-TIFF.",
+        )
     sizes = {axis: int(pixels.get(f"Size{axis}", 0)) for axis in "XYCZT"}
     if (sizes["C"], sizes["Z"], sizes["T"], pixels.get("Type")) != (3, 1, 1, "uint8"):
         raise refusal(
@@ -125,4 +132,5 @@ def _build(tif: Any, name: str, override: Point | None, options: ReaderOptions) 
         mpp,
         name,
         provenance=provenance(FORMAT, source),
+        transforms=integer_transforms(dims),
     )

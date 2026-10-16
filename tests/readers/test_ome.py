@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import tifffile
 
 from slidetwin.core.errors import SlideMetadataError
 from slidetwin.core.formats import FormatMatch, sniff
@@ -141,6 +142,21 @@ def test_two_images_of_the_same_size_are_ambiguous(tmp_path: Path) -> None:
     write_ome(path, rgb_levels(n=1), extra_images=rgb_levels(n=1))
     with pytest.raises(SlideMetadataError, match="layout SlideTwin validated"):
         open_ome(path)
+
+
+def test_two_pyramids_are_refused(tmp_path: Path) -> None:
+    # two tissue regions, each its own pyramid: serving the larger alone would hide the other
+    path = tmp_path / "two.ome.tif"
+    kw: dict[str, Any] = {"tile": (256, 256), "photometric": "rgb"}
+    with tifffile.TiffWriter(path, bigtiff=True, ome=True) as tw:
+        for i, levels in enumerate((rgb_levels(n=3), rgb_levels(512, 384, n=2, seed=1))):
+            meta = {"axes": "YXS", "PhysicalSizeX": 0.5, "PhysicalSizeY": 0.5, "Name": f"SECRET{i}"}
+            tw.write(levels[0], subifds=len(levels) - 1, metadata=meta, **kw)
+            for level in levels[1:]:
+                tw.write(level, subfiletype=1, **kw)
+    with pytest.raises(SlideMetadataError, match="more than one image pyramid") as err:
+        open_ome(path)
+    assert "SECRET" not in f"{err.value.message} {err.value.hint}"
 
 
 def test_no_scene_plane_or_channels(tmp_path: Path) -> None:

@@ -43,7 +43,7 @@ from slidetwin.readers.tiffpages import (
 
 FORMAT = "ventana-bif"
 SCANNER = "VENTANA DP 200"
-STITCHER = "xmp joints per column, frames at ceil(x / 2^k), later frame wins"
+STITCHER = "xmp joints per column, levels while every column is on the level grid, later frame wins"
 MIN_CONFIDENCE = 98  # Bio-Formats ignores joints below this
 _LEVEL = re.compile(r"level=(\d+) mag=[\d.]+")
 
@@ -128,7 +128,7 @@ def _column_overlaps(info: Any, rows: int, cols: int, width: int, name: str) -> 
     for joint in info.findall("TileJointInfo"):
         direction = joint.get("Direction")
         if direction not in ("LEFT", "UP"):
-            raise _unsupported(name, f"an iScan file with {direction} joints")
+            raise _unsupported(name, "an iScan file with joints other than LEFT and UP")
         (r1, c1), (r2, c2) = cell(int(joint.get("Tile1", 0))), cell(int(joint.get("Tile2", 0)))
         dx, dy = float(joint.get("OverlapX", "nan")), float(joint.get("OverlapY", "nan"))
         confirmed = int(joint.get("Confidence", 0)) >= MIN_CONFIDENCE
@@ -180,10 +180,15 @@ def _build(tif: Any, name: str, override: Point | None) -> BifSource:
     shift = _column_overlaps(info, rows, cols, frame[0], name)
     xs = [c * frame[0] - sum(shift[:c]) for c in range(cols)]
     w0, h0 = xs[-1] + frame[0], rows * frame[1]
+    # At a level where a column does not start on the level's pixel grid, the stored frames sit
+    # up to one level pixel off; such levels (and the coarser ones) are not served, and the
+    # renderer reduces the last exact level instead.
+    exact = next((k for k in range(len(pages)) if any(x % 2**k for x in xs)), len(pages))
+    pages = pages[:exact]
     frames = []
     for k in range(len(pages)):
         ds = 2**k
-        left = np.array([math.ceil(x / ds) for x in xs], dtype=np.int64)
+        left = np.array([x // ds for x in xs], dtype=np.int64)  # exact: x % ds == 0
         frames.append(Frames(left, frame[0] // ds, first[0] // frame[0], first[1] // ds))
     try:
         res = float(scan.get("ScanRes", "nan"))

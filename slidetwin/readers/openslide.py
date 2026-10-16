@@ -396,6 +396,9 @@ _LAYOUTS: dict[str, Callable[[Path, str], _Layout]] = {
 }
 
 
+_GLIB_SPACE = " \t\n\v\f\r"  # g_ascii_isspace: the only spaces GLib's key-file parser skips
+
+
 class _Ini(configparser.ConfigParser):
     """An INI index as GLib's key-file parser (OpenSlide's) reads it: '=' only, '#' comments,
     case-sensitive keys, the last of repeated keys wins."""
@@ -413,14 +416,38 @@ def _read_ini(path: Path, name: str) -> _Ini:
     """UTF-8, with an optional byte-order mark. Bytes that are not UTF-8 are kept as surrogate
     escapes, so a file name that is not UTF-8 is refused rather than changed. Lines end at '\\n'
     and leading whitespace is ignored, as in GLib; configparser alone would read an indented line
-    as the continuation of a value."""
+    as the continuation of a value.
+
+    GLib skips only ASCII spaces, and keeps a value's trailing spaces, where configparser strips
+    any space at both ends. A line the two read differently could make OpenSlide open another
+    file than the one checked and hashed, so it is refused (no real index has one)."""
     ini = _Ini()
     try:
         text = path.read_bytes().decode("utf-8", "surrogateescape").removeprefix("\ufeff")
-        ini.read_string("\n".join(line.lstrip() for line in text.split("\n")))
-    except (OSError, configparser.Error) as err:
+    except OSError as err:
+        raise _bad_index(name, err) from None
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
+    if any(_read_differently(line) for line in lines):
+        raise SlideMetadataError(
+            f"Slide '{name}' has an index line with spaces that OpenSlide would read differently "
+            "(at the start of a line, or around a key or a value).",
+            hint="Remove those spaces from the index file, or convert the slide.",
+        )
+    try:
+        ini.read_string("\n".join(line.lstrip() for line in lines))
+    except configparser.Error as err:
         raise _bad_index(name, err) from None
     return ini
+
+
+def _read_differently(line: str) -> bool:
+    start = line.lstrip(_GLIB_SPACE)
+    if start != line.lstrip():  # a non-ASCII space before the key
+        return True
+    key, eq, value = start.partition("=")
+    if not eq or start.startswith(("#", "[")):
+        return False
+    return key.rstrip(_GLIB_SPACE) != key.rstrip() or value.lstrip(_GLIB_SPACE) != value.strip()
 
 
 def _check_names(names: Iterable[str], name: str) -> None:

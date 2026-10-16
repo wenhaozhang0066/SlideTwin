@@ -37,6 +37,7 @@ from pydicom.uid import (
 from wsidicom.config import Settings  # type: ignore[import-untyped]
 
 from slidetwin.core.errors import SlideMetadataError, SlideTwinError
+from slidetwin.core.fileset import check_complete
 from slidetwin.core.formats import FormatMatch
 from slidetwin.core.geometry import LevelTransform, Point
 from slidetwin.core.slide_source import (
@@ -146,6 +147,8 @@ class DicomSource(BaseSource):
     ) -> None:
         root, instances = _series(path, name)
         decoder = _check_codecs(instances, name, experimental)
+        # inside the folder once links are followed, before wsidicom opens anything
+        check_complete(root, [inst.file for inst in instances], name)
         files = [root / inst.file for inst in instances]
         try:
             wsi = wsidicom.WsiDicom.open(files, settings=Settings(preferred_decoder=decoder))

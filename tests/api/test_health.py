@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from slidetwin import __version__
 from slidetwin.api import main
 from slidetwin.api.settings import Settings
 from slidetwin.core.errors import ConfigError
+from slidetwin.readers import LIBRARY_LOGGERS
 from tests.conftest import CONFIG_DIR
 
 
@@ -67,6 +69,20 @@ def test_settings_from_env() -> None:
 def test_bad_settings_fail_at_startup(var: str, value: str) -> None:
     with pytest.raises(ConfigError, match=var):
         Settings.from_env({var: value})
+
+
+def test_the_server_silences_the_reader_libraries(settings: Settings) -> None:
+    """A library's warning can name a slide's file; the server reports failures by slide id."""
+    loggers = [logging.getLogger(name) for name in LIBRARY_LOGGERS]
+    saved = [lg.level for lg in loggers]
+    try:
+        for lg in loggers:
+            lg.setLevel(logging.WARNING)
+        main.create_app(settings)
+        assert not any(lg.isEnabledFor(logging.CRITICAL) for lg in loggers)
+    finally:
+        for lg, level in zip(loggers, saved, strict=True):
+            lg.setLevel(level)
 
 
 def test_unwritable_log_dir_fails_at_startup(tmp_path: Path) -> None:

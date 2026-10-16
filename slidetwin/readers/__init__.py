@@ -9,12 +9,35 @@ fallback to another reader. A reader module provides
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 
 from slidetwin.core.errors import SlideMetadataError
 from slidetwin.core.formats import FormatMatch
 from slidetwin.core.geometry import Point
 from slidetwin.core.slide_source import ReaderOptions, SlideSource
+
+# Libraries whose log records can name files and full paths (a file name can carry a label).
+LIBRARY_LOGGERS = (
+    "tifffile",
+    "wsidicom",
+    "fsspec",
+    "pydicom",
+    "openslide",
+    "zarr",
+    "numcodecs",
+    "imagecodecs",
+    "czifile",
+)
+
+
+def quiet_library_logs() -> None:
+    """Silence the readers' libraries. A server's log may be shared, and SlideTwin reports every
+    failure itself, by slide id. Called by the server, not on import: a script that uses
+    SlideTwin as a library keeps its own logging."""
+    for library in LIBRARY_LOGGERS:
+        logging.getLogger(library).setLevel(logging.CRITICAL + 1)
+
 
 # reader id -> (module, pip extra that installs its library, or None for the base install)
 READERS: dict[str, tuple[str, str | None]] = {

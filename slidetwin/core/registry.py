@@ -31,6 +31,7 @@ from slidetwin.core.errors import (
 from slidetwin.core.fileset import check_complete, fileset_sha256
 from slidetwin.core.formats import sniff
 from slidetwin.core.geometry import Point
+from slidetwin.core.render import MAX_READ_PIXELS
 from slidetwin.core.slide_source import ReaderOptions, SlideSource, open_slide
 
 SLIDE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -146,9 +147,13 @@ def file_sha256(path: Path) -> str:
 
 @dataclass(frozen=True)
 class RegisteredSlide:
+    """`sha256` is the entry file's hash (D9), or the file-set hash for a folder; a slide made of
+    several files also has `fileset_sha256`, which covers every file it needs."""
+
     slide_id: str
     source: SlideSource
     sha256: str
+    fileset_sha256: str | None = None
 
 
 class SlideRegistry:
@@ -235,27 +240,35 @@ class SlideRegistry:
                     f"The file for slide '{entry.id}' could not be read.",
                     hint="Check that the slide's files are readable by the server.",
                 ) from None
-        elif entry.options() != ReaderOptions() or entry.fileset_sha256 is not None:
+        elif (
+            entry.options() != ReaderOptions()
+            or entry.fileset_sha256 is not None
+            or entry.format is not None
+        ):
             raise ConfigError(
-                f"Slide '{entry.id}': scene, plane, channels, experimental and fileset_sha256 "
-                "need backend auto.",
+                f"Slide '{entry.id}': format, scene, plane, channels, experimental and "
+                "fileset_sha256 need backend auto.",
             )
         else:
             source = open_slide(path, backend=entry.backend, mpp_override=override, name=entry.id)
         try:
-            digest = self._content_hash(entry, path, source)
+            check_servable(source, entry.id)
+            digest, whole = self._content_hash(entry, path, source)
         except OSError:
             source.close()
             raise SlideNotFound(f"The file for slide '{entry.id}' could not be read.") from None
         except Exception:
             source.close()
             raise
-        return RegisteredSlide(entry.id, source, digest)
+        return RegisteredSlide(entry.id, source, digest, whole)
 
-    def _content_hash(self, entry: SlideEntry, path: Path, source: SlideSource) -> str:
-        """The slide's content hash: the file's sha256, or the file-set hash when the reader
-        reads several files. A pinned hash is always verified on the files themselves (once per
-        process); the cache only spares unpinned slides from re-hashing."""
+    def _content_hash(
+        self, entry: SlideEntry, path: Path, source: SlideSource
+    ) -> tuple[str, str | None]:
+        """(sha256, fileset_sha256): the entry file's hash and, when the reader reads several
+        files, the hash of the whole set (for a folder, sha256 is the set's hash too). A pinned
+        hash is always verified on the files themselves (once per process); the cache only
+        spares unpinned slides from re-hashing."""
         if entry.sha256 is not None and not path.is_file():
             raise ConfigError(f"Slide '{entry.id}' is a folder: pin it with fileset_sha256.")
         if entry.sha256 is not None and file_sha256(path) != entry.sha256:
@@ -264,7 +277,8 @@ class SlideRegistry:
         if fileset is None:
             if entry.fileset_sha256 is not None:
                 raise ConfigError(f"Slide '{entry.id}' is a single file: use sha256.")
-            return entry.sha256 if entry.sha256 is not None else self._cached_sha256(path)
+            digest = entry.sha256 if entry.sha256 is not None else self._cached_sha256(path)
+            return digest, None
         if entry.sha256 is not None and entry.fileset_sha256 is None:
             raise ConfigError(
                 f"Slide '{entry.id}' is made of several files, and sha256 covers only the first.",
@@ -272,13 +286,22 @@ class SlideRegistry:
             )
         root, files = fileset
         rels = check_complete(root, files, entry.id)
-        if entry.fileset_sha256 is not None:
-            digest = fileset_sha256(root, rels, file_sha256)
-            if digest != entry.fileset_sha256:
-                raise _mismatch(entry.id, "fileset_sha256")
-            return digest
+        pinned = entry.fileset_sha256 is not None
+        hashes: dict[str, str] = {}  # each file is hashed once, the entry file included
         with self._hash_cache() as cached:
-            return fileset_sha256(root, rels, cached)
+            base = file_sha256 if pinned else cached
+
+            def once(p: Path) -> str:
+                key = os.path.realpath(p)
+                if key not in hashes:
+                    hashes[key] = base(p)
+                return hashes[key]
+
+            whole = fileset_sha256(root, rels, once)
+            first = once(path) if path.is_file() else whole
+        if pinned and whole != entry.fileset_sha256:
+            raise _mismatch(entry.id, "fileset_sha256")
+        return first, whole
 
     def _cached_sha256(self, path: Path) -> str:
         with self._hash_cache() as cached:
@@ -360,3 +383,15 @@ def _mismatch(slide_id: str, field: str) -> SlideIntegrityError:
         f"Slide '{slide_id}' does not match the {field} pinned in the manifest.",
         hint="Re-download the slide or update the manifest after checking the source.",
     )
+
+
+def check_servable(source: SlideSource, slide_id: str) -> None:
+    """Refuse a slide that no view could be rendered from: its coarsest level is larger than the
+    renderer reads at once (a single-level image without a pyramid)."""
+    w, h = min(source.level_dimensions, key=lambda size: size[0] * size[1])
+    if w * h > MAX_READ_PIXELS:
+        raise SlideMetadataError(
+            f"Slide '{slide_id}' has no pyramid level small enough to show the whole slide "
+            f"({w} x {h} px at its coarsest).",
+            hint="Save it as a pyramidal TIFF, for example with libvips tiffsave --pyramid.",
+        )

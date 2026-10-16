@@ -182,6 +182,25 @@ def test_svs_mpp_from_the_description(tmp_path: Path) -> None:
         open_tiff(no_mpp)
 
 
+def test_svs_label_or_macro_taken_for_a_level_is_refused(tmp_path: Path) -> None:
+    head = "Aperio Image Library v12.0.15 \n"
+    page: dict[str, Any] = {"photometric": "rgb", "metadata": None}
+
+    def svs(path: Path, third: str) -> Path:
+        with tifffile.TiffWriter(path) as tif:
+            base = head + "512x384 [0,0 512x384] (64x64) JPEG/RGB Q=70|MPP = 0.25"
+            tif.write(LEVELS[0], tile=(64, 64), description=base, **page)
+            tif.write(LEVELS[2], description=head + "512x384 -> 128x96 - |", **page)  # thumbnail
+            tif.write(LEVELS[1], tile=(64, 64), description=head + third, **page)  # tiled: a level
+        return path
+
+    level = svs(tmp_path / "a.svs", "512x384 -> 256x192 JPEG/RGB Q=70")
+    assert open_tiff(level).level_dimensions == ((512, 384), (256, 192))
+    for kind in ("label", "Macro"):
+        with pytest.raises(SlideMetadataError, match="not one clean pyramid"):
+            open_tiff(svs(tmp_path / f"{kind}.svs", f"{kind} 256x192"))
+
+
 PHILIPS = (
     '<?xml version="1.0" encoding="UTF-8" ?><DataObject ObjectType="DPUfsImport">'
     '<Attribute Name="DICOM_MANUFACTURER">Hamamatsu</Attribute>'

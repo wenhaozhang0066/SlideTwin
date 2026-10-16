@@ -240,10 +240,23 @@ def test_reader_choices_are_validated() -> None:
             parse_manifest({"slides": [{"id": "s", "path": "s.tif", **bad}]})
 
 
-def test_reader_choices_need_backend_auto(slide_dir: Path) -> None:
-    reg = SlideRegistry([entry(backend="tiffslide", scene=1)], slide_dir)
-    with pytest.raises(ConfigError, match="need backend auto"):
-        reg.get("syn")
+@pytest.mark.parametrize("kw", [{"scene": 1}, {"format": "aperio-svs"}])
+def test_reader_choices_need_backend_auto(slide_dir: Path, kw: dict[str, Any]) -> None:
+    for backend in ("tiffslide", "openslide"):
+        reg = SlideRegistry([entry(backend=backend, **kw)], slide_dir)
+        with pytest.raises(ConfigError, match="need backend auto"):
+            reg.get("syn")
+
+
+def test_slides_without_a_small_enough_level_are_refused(
+    slide_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the coarsest level of syn.tif is 256 x 256; a whole-slide view reads it at once
+    monkeypatch.setattr(registry_mod, "MAX_READ_PIXELS", 256 * 256)
+    assert SlideRegistry([entry()], slide_dir).get("syn").source.level_dimensions[-1] == (256, 256)
+    monkeypatch.setattr(registry_mod, "MAX_READ_PIXELS", 256 * 256 - 1)
+    with pytest.raises(SlideMetadataError, match=r"no pyramid level small enough .*256 x 256"):
+        SlideRegistry([entry()], slide_dir).get("syn")
 
 
 class _SetSource(ArraySlideSource):
@@ -281,8 +294,8 @@ def test_file_sets_are_hashed_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         entry(id="b", path="s.mrxs", fileset_sha256=whole, sha256=mrxs_hash),
     ]
     reg = SlideRegistry(good, root, cache_dir=tmp_path / "cache")
-    assert reg.get("a").sha256 == whole  # the content hash of a set is the set's hash
-    assert reg.get("b").sha256 == whole
+    for slide_id in ("a", "b"):  # the entry file's hash (D9) and the hash of the whole set
+        assert (reg.get(slide_id).sha256, reg.get(slide_id).fileset_sha256) == (mrxs_hash, whole)
     bad = [
         entry(id="c", path="s.mrxs", fileset_sha256="0" * 64),
         entry(id="d", path="s.mrxs", sha256="0" * 64),

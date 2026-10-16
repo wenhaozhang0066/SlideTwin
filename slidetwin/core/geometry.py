@@ -157,6 +157,20 @@ def extent_transforms(level0_dims: Size, level_dims: Sequence[Size]) -> tuple[Le
     return tuple(LevelTransform(w0 / w, h0 / h) for (w, h) in level_dims)
 
 
+def integer_transforms(level_dims: Sequence[Size]) -> tuple[LevelTransform, ...]:
+    """Exact integer scales where a level is level 0 divided by an integer k, rounded down or up,
+    as SVS, Huron, libvips and QuPath write them; elsewhere the extent ratio (D13). The extent
+    ratio of a floor-sized level is a little too large, which moves its pixels by up to k - 1
+    level-0 pixels towards the far edge."""
+    w0, h0 = level_dims[0]
+    out = []
+    for w, h in level_dims:
+        k = max(1, round(w0 / w))
+        exact = w in (w0 // k, -(-w0 // k)) and h in (h0 // k, -(-h0 // k))
+        out.append(LevelTransform(float(k), float(k)) if exact else LevelTransform(w0 / w, h0 / h))
+    return tuple(out)
+
+
 def transform_mpps(transforms: Sequence[LevelTransform], mpp_xy: Point) -> tuple[Point, ...]:
     """Per-axis um/px of every level."""
     mx, my = mpp_xy

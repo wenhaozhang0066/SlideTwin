@@ -104,6 +104,11 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
         raise ReplayError(
             f"Slide '{slide.slide_id}' differs from the file used in the log (sha256 mismatch)."
         )
+    if header["slide"].get("fileset_sha256", slide.fileset_sha256) != slide.fileset_sha256:
+        raise ReplayError(
+            f"Slide '{slide.slide_id}' differs from the files used in the log (file-set hash "
+            "mismatch)."
+        )
     logged = header["slide"].get("provenance")  # absent in logs written before M8
     if logged is not None and _settings(logged) != _settings(source_provenance(slide.source)):
         raise ReplayError(
@@ -126,6 +131,7 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
             slide_id=slide.slide_id,
             source=slide.source,
             slide_sha256=slide.sha256,
+            slide_fileset_sha256=slide.fileset_sha256,
             profile=profile,
             protocol=protocol,
             actor=header["actor"],

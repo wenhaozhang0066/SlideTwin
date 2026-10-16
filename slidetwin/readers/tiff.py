@@ -19,7 +19,7 @@ import zarr
 
 from slidetwin.core.errors import SlideMetadataError, SlideTwinError
 from slidetwin.core.formats import FormatMatch
-from slidetwin.core.geometry import Point
+from slidetwin.core.geometry import Point, integer_transforms
 from slidetwin.core.slide_source import (
     RGB,
     BaseSource,
@@ -37,6 +37,7 @@ FILL = (255, 255, 255)
 # 1000) or a screen default (72 dpi is 352.8), so the slide needs mpp_override.
 MPP_RANGE = (0.05, 20.0)
 _UNIT_UM = {2: 25_400.0, 3: 10_000.0}  # TIFF ResolutionUnit: inch, centimetre
+_ASSOCIATED = ("label", "macro")  # how Aperio describes those pages, after the first line
 
 
 def open_reader(
@@ -63,8 +64,7 @@ class TiffFamilySource(BaseSource):
             raise unreadable_error(name, "tifffile", err) from None
         try:
             series = tif.series[0]
-            if fmt == "generic-tiff":
-                _check_structure(tif, series, name)
+            _check_structure(tif, series, name, vendor=fmt != "generic-tiff")
             dims = _level_dims(series, name)
             raw, origin = _raw_mpp(tif, fmt)
             if mpp_override is None and raw is not None and not _plausible(raw):
@@ -86,6 +86,7 @@ class TiffFamilySource(BaseSource):
             mpp,
             f"tifffile {version}",
             name,
+            transforms=integer_transforms(dims),
             provenance={
                 "format": fmt,
                 "mpp_source": "mpp_override" if mpp_override else origin,
@@ -124,20 +125,28 @@ def _level_dims(series: Any, name: str) -> list[tuple[int, int]]:
     return [(int(level.shape[1]), int(level.shape[0])) for level in series.levels]
 
 
-def _check_structure(tif: Any, series: Any, name: str) -> None:
-    """A generic TIFF is served only if it is a clean pyramid: IFD 0 is tiled and the largest page,
-    and the levels shrink strictly with the same proportions (within rounding). Anything else may
-    be a label stored first, or pages from different images."""
+def _check_structure(tif: Any, series: Any, name: str, *, vendor: bool = False) -> None:
+    """A TIFF is served only if it is one clean pyramid: the levels shrink strictly with the same
+    proportions (within rounding), so a label or macro taken for a level is refused, and no other
+    series is a pyramid of its own (a second tissue region would be dropped silently). A generic
+    TIFF must also start with its full-resolution image: IFD 0 tiled and the largest page. A
+    vendor format names its base itself, and an SVS level described as a label or macro is
+    refused."""
     first = tif.pages.first
     levels = series.levels
     base = levels[0]
-    largest = max(int(p.shape[0]) * int(p.shape[1]) for p in tif.pages if p.shape)
     w0, h0 = int(base.shape[1]), int(base.shape[0])
-    ok = first.is_tiled and base.keyframe.index == 0 and w0 * h0 == largest
+    ok = True
+    if not vendor:
+        largest = max(int(p.shape[0]) * int(p.shape[1]) for p in tif.pages if p.shape)
+        ok = first.is_tiled and base.keyframe.index == 0 and w0 * h0 == largest
     for prev, cur in itertools.pairwise(levels):
         w, h = int(cur.shape[1]), int(cur.shape[0])
         ok = ok and w < int(prev.shape[1]) and h < int(prev.shape[0])
         ok = ok and abs(h - h0 * w / w0) <= 1.0 + h0 / w0  # same aspect ratio, within rounding
+        lines = str(getattr(cur.keyframe, "description", "") or "").splitlines()
+        ok = ok and not (len(lines) > 1 and lines[1].strip().lower().startswith(_ASSOCIATED))
+    ok = ok and not any(len(other.levels) > 1 for other in tif.series[1:])
     if not ok:
         raise SlideMetadataError(
             f"Slide '{name}' is a TIFF whose pages are not one clean pyramid; SlideTwin will not "

@@ -225,7 +225,8 @@ def test_the_registry_hashes_and_pins_the_file_set(tmp_path: Path) -> None:
         manifest.write_text(yaml.safe_dump({"slides": [{**entry, "fileset_sha256": pinned}]}))
         registry = SlideRegistry.from_manifest(manifest, tmp_path)
         if error is None:
-            assert registry.get("vsi1").sha256 == expected
+            reg = registry.get("vsi1")
+            assert (reg.sha256, reg.fileset_sha256) == (file_sha256(vsi), expected)
         else:
             with pytest.raises(error):
                 registry.get("vsi1")

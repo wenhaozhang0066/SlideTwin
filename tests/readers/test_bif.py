@@ -43,27 +43,43 @@ def refused(path: Path, match: str, **kw: Any) -> None:
 
 @pytest.mark.parametrize("origin", [(0, 0), (1, 2)])
 def test_frames_are_stitched_like_bioformats(tmp_path: Path, origin: tuple[int, int]) -> None:
-    f = write_bif(tmp_path / "a.bif", origin_cells=origin)
+    f = write_bif(tmp_path / "a.bif", origin_cells=origin, overlaps=[0, 8, 16])
     assert sniff(f.path) == MATCH
     src = open_source(f.path, sniff(f.path), name="s1")
     assert isinstance(src, BifSource)
-    # four 64-px frame columns with overlaps 0, 5, 3: 256 - 8 = 248 wide; rows abut
-    assert src.level_dimensions == ((248, 192), (124, 96), (62, 48), (31, 24))
+    # four 64-px frame columns with overlaps 0, 8, 16: 256 - 24 = 232 wide; rows abut
+    assert src.level_dimensions == ((232, 192), (116, 96), (58, 48), (29, 24))
     assert src.level_transforms == tuple(LevelTransform(2.0**k, 2.0**k) for k in range(4))
     assert src.mpp == (0.25, 0.25)
-    for k in range(4):  # frames at ceil(x / 2^k), later frames on top
+    for k in range(4):  # frames at x / 2^k, later frames on top
         np.testing.assert_array_equal(full(src, k), f.stitched[k])
     rng = np.random.default_rng(1)
     for _ in range(20):
-        x, y = int(rng.integers(0, 200)), int(rng.integers(0, 150))
+        x, y = int(rng.integers(0, 190)), int(rng.integers(0, 150))
         np.testing.assert_array_equal(
             src.read_level(0, x, y, 41, 33), f.stitched[0][y : y + 33, x : x + 41]
         )
     prov = src.provenance
     assert (prov["format"], prov["mpp_source"]) == ("ventana-bif", "bif iScan ScanRes")
-    assert prov["stitcher"] == "xmp joints per column, frames at ceil(x / 2^k), later frame wins"
+    assert prov["stitcher"] == (
+        "xmp joints per column, levels while every column is on the level grid, later frame wins"
+    )
     assert "SECRET" not in json.dumps(prov)
     src.close()
+
+
+@pytest.mark.parametrize(("overlaps", "levels"), [([0, 4, 8], 3), ([0, 5, 3], 1)])
+def test_levels_end_where_a_column_leaves_the_level_grid(
+    tmp_path: Path, overlaps: list[int], levels: int
+) -> None:
+    # columns start at 0, 64, 124, 180 (on the grid of levels 0-2) or at 0, 64, 123, 184 (odd):
+    # a coarser level would place a column up to one level pixel off, so it is not served
+    f = write_bif(tmp_path / "a.bif", overlaps=overlaps)
+    src = open_bif(f.path)
+    assert len(src.level_dimensions) == levels
+    assert src.level_transforms == tuple(LevelTransform(2.0**k, 2.0**k) for k in range(levels))
+    for k in range(levels):
+        np.testing.assert_array_equal(full(src, k), f.stitched[k])
 
 
 def test_label_and_probability_images_are_never_read(tmp_path: Path) -> None:
@@ -90,8 +106,8 @@ def _two_areas(xmp: str) -> str:
     ("edit", "message"),
     [
         (
-            lambda x: x.replace('Direction="LEFT"', 'Direction="RIGHT"'),
-            "iScan file with RIGHT joints",
+            lambda x: x.replace('Direction="LEFT"', 'Direction="SECRET"'),
+            "iScan file with joints other than LEFT and UP",
         ),
         (_scan, "not from the VENTANA DP 200 scanner"),
         (lambda x: x.replace('Z-layers="1"', 'Z-layers="3"'), "is a z-stack"),
@@ -201,13 +217,7 @@ def test_no_scene_plane_or_channels(tmp_path: Path) -> None:
 # --- the CC0 sample (tier 3, local) ----------------------------------------------------------
 
 # Bio-Formats 8.5.0 and the survey's independent stitcher agree on these (sha256 of RGB rows).
-GOLDEN_LEVELS = {
-    3: "31254b81f75e6b99ebd88dc9e39477a4781188ae3a935dfb0caa553e1d8b44fb",
-    4: "22b9667cc6326f907e233625c04a4e7250a8a2df26bb0063e123c7130556c33e",
-    5: "d7ab1e729d8e218eda8dbc7b1dc5ab5cf843921e24195e8548b5d8496d7a532c",
-    6: "8630b07129a74dbd1cfaad9aa2fd7b73a5f2090cf426fc288910078a0760b6a3",
-    7: "ddc6d2d2852e332b91f63e4555c8a2f06f5de9375186ed3dced23879705f6f57",
-}
+GOLDEN_LEVELS = {3: "31254b81f75e6b99ebd88dc9e39477a4781188ae3a935dfb0caa553e1d8b44fb"}
 GOLDEN_REGIONS = {  # level-0 512 x 512 windows
     (3328, 9472): "865e46e575022ad1a1045f52c3385a25512a8e25e226e1f25df8034902dc783e",
     (11460, 10496): "0322c44ba03193bfe95032138c324f5492829b470d6540876209fe411304d3e1",
@@ -222,16 +232,9 @@ def _sha(a: np.ndarray) -> str:
 def test_ventana1_is_bit_identical_to_bioformats() -> None:
     path = sample_path("Ventana/Ventana-1.bif", tier=3)
     src = open_bif(path)
-    assert src.level_dimensions == (
-        (23432, 21504),
-        (11716, 10752),
-        (5858, 5376),
-        (2929, 2688),
-        (1464, 1344),
-        (732, 672),
-        (366, 336),
-        (183, 168),
-    )
+    # The file has 8 levels. From level 4 on, some columns start between level pixels
+    # (Bio-Formats draws them up to one level pixel off), so levels 4-7 are not served.
+    assert src.level_dimensions == ((23432, 21504), (11716, 10752), (5858, 5376), (2929, 2688))
     assert src.mpp == (0.25, 0.25)
     for level, digest in GOLDEN_LEVELS.items():
         assert _sha(full(src, level)) == digest, level

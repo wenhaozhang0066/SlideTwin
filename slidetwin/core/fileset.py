@@ -10,29 +10,51 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
 
-from slidetwin.core.errors import ConfigError, SlideNotFound
+from slidetwin.core.errors import ConfigError, SlideMetadataError, SlideNotFound
 
 FILESET_VERSION = "slidetwin-fileset-v1"
 
 
-def check_relative(paths: Iterable[str]) -> tuple[str, ...]:
-    """The set's relative POSIX paths, sorted; refuses absolute paths, '..' and duplicates."""
+def check_relative(paths: Iterable[str], slide_id: str = "slide") -> tuple[str, ...]:
+    """The set's relative POSIX paths, sorted; refuses absolute paths, '..', backslashes and an
+    empty set. The error counts the bad names but never shows them: they can carry labels."""
     out = sorted(set(paths), key=lambda p: p.encode("utf-8"))
-    for rel in out:
-        parts = PurePosixPath(rel).parts
-        if not rel or PurePosixPath(rel).is_absolute() or ".." in parts or "\\" in rel:
-            raise ConfigError(f"A file-set path must be relative without '..', got {rel[:80]!r}.")
+    bad = sum(
+        1
+        for rel in out
+        if not rel
+        or PurePosixPath(rel).is_absolute()
+        or ".." in PurePosixPath(rel).parts
+        or "\\" in rel
+    )
+    if bad:
+        raise SlideMetadataError(
+            f"Slide '{slide_id}' names {bad} file(s) SlideTwin will not open (an absolute path, "
+            "'..' or a backslash).",
+            hint="Rename the slide's files with plain names inside its folder.",
+        )
     if not out:
         raise ConfigError("A file set must contain at least one file.")
     return tuple(out)
 
 
 def check_complete(root: Path, files: Iterable[str], slide_id: str) -> tuple[str, ...]:
-    """All files present; the error counts the missing ones but never names them."""
-    rels = check_relative(files)
+    """All files present, and inside the slide's folder once links are followed (a link must
+    not pull in a file from elsewhere). The errors count files but never name them."""
+    rels = check_relative(files, slide_id)
+    inside = os.path.realpath(root)
+    outside = sum(
+        1 for rel in rels if os.path.commonpath([inside, os.path.realpath(root / rel)]) != inside
+    )
+    if outside:
+        raise SlideMetadataError(
+            f"Slide '{slide_id}' has {outside} file(s) that link outside its folder.",
+            hint="Copy the slide's files into its folder instead of linking them.",
+        )
     missing = sum(1 for rel in rels if not (root / rel).is_file())
     if missing:
         raise SlideNotFound(
@@ -44,7 +66,7 @@ def check_complete(root: Path, files: Iterable[str], slide_id: str) -> tuple[str
 
 def fileset_sha256(root: Path, files: Iterable[str], file_hash: Callable[[Path], str]) -> str:
     h = hashlib.sha256((FILESET_VERSION + "\n").encode("ascii"))
-    for rel in check_relative(files):
+    for rel in check_relative(files):  # already checked with the slide's id
         path = root / rel
         line = json.dumps([rel, path.stat().st_size, file_hash(path)], ensure_ascii=False)
         h.update((line + "\n").encode("utf-8"))

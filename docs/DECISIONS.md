@@ -840,8 +840,8 @@ Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
   - Trestle: overlapping camera tiles stitched as OpenSlide does (bit-identical on CMU-1); coarse
     levels start half the overlap in, (X0 - 32) / 2^k on CMU-1.
   - Ventana BIF: tiles stitched from the XMP joints, as Bio-Formats does (bit-identical on
-    Ventana-1 in the survey); only VENTANA DP 200 with one area, LEFT/UP joints and confirmed
-    joints; older iScan files are refused.
+    Ventana-1 at the levels served, 0-3; see the review below); only VENTANA DP 200 with one
+    area, LEFT/UP joints and confirmed joints; older iScan files are refused.
   - ARGOS AVS: the 'Baseline' series, white fill, exact 2^k levels; a z-stack shows the plane the
     manifest names, else its middle plane (as OpenSlide), with the plane order unverified.
   - OME-TIFF with interleaved RGB and Akoya QPTIFF brightfield; multichannel, planar and
@@ -868,3 +868,40 @@ Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
   refuses other OLE2 files (such as Motic MDS) before slideio runs; ortho-view exports, z-stacks,
   time series and mosaics are refused for good or until validated.
 
+### Review of M8 (2026-10-16)
+
+Three adversarial reviews (robustness; privacy and safety; correctness and replay). The confirmed
+findings and their fixes:
+
+- **Hashes (D9 kept).** The header's `sha256` is again the entry file's hash. A slide made of
+  several files also records `fileset_sha256`, and replay checks both. So an MRXS entry moved from
+  `backend: openslide` to auto keeps its older logs valid.
+- **Exact integer scales.** TIFF (SVS, Philips, Huron, generic), OME-TIFF and QPTIFF levels whose
+  size is level 0 divided by an integer k, rounded down or up, get the scale k. The extent ratio
+  put them up to k - 1 level-0 px off at the far edge. The demo slides divide exactly and are
+  unchanged.
+- **BIF levels.** A level where a frame column starts between level pixels is not served, nor
+  are the coarser ones; the renderer reduces the last exact level. Ventana-1 serves levels 0-3;
+  Bio-Formats draws its levels 4-7 up to one level pixel off.
+- **One clean pyramid.** Every TIFF format passes the structure check. An SVS level described as
+  a label or macro is refused, and so is a TIFF or OME-TIFF with a second pyramid (another tissue
+  region that would be hidden).
+- **Servable at open.** A slide whose coarsest level is larger than the renderer reads at once
+  (400 million px, e.g. a single-level image) is refused when it opens, with the conversion hint,
+  instead of failing every view.
+- **File sets.** A file that links outside the slide's folder is refused, for DICOM before
+  wsidicom opens anything. These refusals count files and never name them.
+- **Index files.** An MRXS or VMS index line that GLib (OpenSlide's parser) and SlideTwin read
+  differently is refused: a non-ASCII space before a key, or spaces at the end of a value. Such a
+  line could make OpenSlide open another file than the one hashed. None of the 29 real index
+  files on hand has one.
+- **Logs.** The server silences the readers' libraries (tifffile, wsidicom, pydicom, zarr and
+  others), whose warnings can name files. SlideTwin reports failures by slide id.
+- **Manifest.** `format` with a named backend is a configuration error, like `scene`.
+- **Robustness** (earlier commit): TIFFs are size-checked before tifffile parses them; an
+  unreadable file is SLIDE_NOT_FOUND without its path; a file set pinned only by `sha256` is
+  refused; the hash cache is read and written once per slide; `backend: openslide` without
+  OpenSlide names the extra to install.
+- **CI hang.** A worker test sent 1 MiB into a pipe that nothing read. GitHub runners' socket
+  buffers hold about 200 KB, so the send blocked; the cluster's 16 MiB buffers hid it. The test
+  now sends only the length header.

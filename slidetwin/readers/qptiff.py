@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from slidetwin.core.formats import FormatMatch
-from slidetwin.core.geometry import Point
+from slidetwin.core.geometry import Point, integer_transforms
 from slidetwin.core.slide_source import ReaderOptions
 from slidetwin.readers.tiff import _tag_mpp
 from slidetwin.readers.tiffpages import (
@@ -80,4 +80,5 @@ def _build(tif: Any, name: str, override: Point | None, options: ReaderOptions) 
         mpp,
         name,
         provenance=provenance(FORMAT, source),
+        transforms=integer_transforms(dims),
     )

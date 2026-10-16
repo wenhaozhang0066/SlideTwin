@@ -149,6 +149,20 @@ def test_logs_without_provenance_and_new_versions_still_replay(
     assert replay(tampered(good_log, upgraded), tiff_registry).ok
 
 
+def test_the_header_names_the_file_set_hash_of_file_sets_only(
+    tiff_registry: SlideRegistry, viewer: Profile, protocol: Protocol
+) -> None:
+    def header(**kw: Any) -> dict[str, Any]:
+        s = new_session(tiff_registry, viewer, protocol, **kw)
+        s.get_thumbnail()
+        first = (s.export_trajectory().text or "").splitlines()[0]
+        slide: dict[str, Any] = json.loads(first)["slide"]
+        return slide
+
+    assert "fileset_sha256" not in header()
+    assert header(slide_fileset_sha256="a" * 64)["fileset_sha256"] == "a" * 64
+
+
 def test_jpeg_hash_differences_are_tolerated(good_log: str, tiff_registry: SlideRegistry) -> None:
     edited = tampered(good_log, lambda ls: ls[2]["observation"].update(jpeg_sha256="f" * 64))
     assert replay(edited, tiff_registry).ok
@@ -158,6 +172,7 @@ def test_jpeg_hash_differences_are_tolerated(good_log: str, tiff_registry: Slide
     ("edit", "message"),
     [
         (lambda ls: ls[0]["slide"].update(sha256="0" * 64), "differs from the file"),
+        (lambda ls: ls[0]["slide"].update(fileset_sha256="0" * 64), "file-set hash mismatch"),
         (lambda ls: ls[0]["slide"]["provenance"].update(reader="other"), "read differently"),
         (lambda ls: ls[0]["slide"].update(provenance="tiffslide"), "read differently"),
         (lambda ls: ls[0]["profile"]["content"].update(mag_tolerance=0.01), "profile"),

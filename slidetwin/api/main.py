@@ -25,6 +25,7 @@ from slidetwin.core.config import ConfigStore
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.mcp_server import SDK_TRANSPORT_SECURITY, build_mcp
+from slidetwin.readers import quiet_library_logs
 from slidetwin.version import git_sha
 
 DESCRIPTION = """Agent-operable digital pathology viewer simulator.
@@ -68,6 +69,7 @@ def create_app(
     settings: Settings | None = None, *, manager: SessionManager | None = None
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    quiet_library_logs()
     mgr = manager if manager is not None else build_manager(settings)
     mcp = build_mcp(mgr)
     # Stateless JSON responses: tools take the session id, so MCP needs no transport session, and
