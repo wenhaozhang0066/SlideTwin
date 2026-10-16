@@ -8,6 +8,8 @@ cd "$(dirname "$0")/.."
 
 PORT="${PORT:-7860}"
 PY=.venv/bin/python
+# The demo's small slide set (0.9 GB); the server and the download both read it.
+export SLIDETWIN_MANIFEST="${SLIDETWIN_MANIFEST:-$PWD/configs/slides/demo.yaml}"
 if [[ -z "${CODESPACE_NAME:-}" && -r /workspaces/.codespaces/shared/.env ]]; then
   # Some lifecycle shells lack the Codespaces variables; read them without sourcing the file.
   shared=/workspaces/.codespaces/shared/.env
@@ -61,7 +63,7 @@ if [[ -n $public_host ]]; then
   echo "Only you can open it. To share it: Ports panel, right-click port $PORT, Port Visibility, Public."
   echo "The port turns private again whenever the codespace restarts."
 fi
-stamp=$(sha256sum configs/slides/manifest.yaml | cut -d' ' -f1)
+stamp=$(sha256sum "$SLIDETWIN_MANIFEST" | cut -d' ' -f1)
 if [[ ${SLIDETWIN_FETCH_SLIDES:-1} != 0 && "$(cat data/slides/.fetched 2>/dev/null)" != "$stamp" ]]; then
   setsid -f bash .devcontainer/fetch.sh >>logs/fetch.log 2>&1 </dev/null 9>&-
   echo "The demo slides are still downloading (logs/fetch.log); each opens once it is complete."

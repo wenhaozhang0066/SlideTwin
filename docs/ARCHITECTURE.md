@@ -348,7 +348,8 @@ Nothing that serves a session imports this package (a test checks it).
   gives its slot to the new one.
 - `POST /api/sessions/{id}/feedback`: optional pilot feedback, stored next to the session log.
 - `.devcontainer/`: a GitHub Codespace installs the package into `.venv` (`setup.sh`) and
-  downloads the slides in the background (`fetch.sh`). On every start and attach, `start.sh`
+  downloads the demo's slides (`configs/slides/demo.yaml`, or `SLIDETWIN_MANIFEST`) in the
+  background (`fetch.sh`). The Docker image serves the same demo manifest by default. On every start and attach, `start.sh`
   starts the server detached unless it is already up, allows the codespace's forwarded host name
   and resumes an unfinished download.
 

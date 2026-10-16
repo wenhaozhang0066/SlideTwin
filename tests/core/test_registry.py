@@ -51,6 +51,22 @@ def test_repo_manifest_parses_and_drops_ground_truth() -> None:
             assert word not in dumped.lower(), (e.id, word)
 
 
+def test_demo_manifest_is_small_public_and_opaque() -> None:
+    data = yaml.safe_load((CONFIG_DIR / "slides" / "demo.yaml").read_text())
+    entries = parse_manifest(data)
+    assert [e.id for e in entries] == ["cmu1_small", "c16_f606e8", "c16_29f5ca"]
+    for raw, e in zip(data["slides"], entries, strict=True):
+        assert e.sha256 is not None  # fetchable and credited
+        assert all((e.source_url, e.license, e.attribution))
+        if e.id.startswith("c16_"):
+            assert e.id == "c16_" + e.sha256[:6]
+        dumped = json.dumps(e.public()).lower()
+        assert "eval_only" not in dumped
+        for word in ("tumor", "normal", "micro", "negative", "annotation"):
+            assert word not in dumped, (e.id, word)
+        assert ("eval_only" in raw) == e.id.startswith("c16_")  # the evaluation can score them
+
+
 @pytest.mark.parametrize(
     "data",
     [

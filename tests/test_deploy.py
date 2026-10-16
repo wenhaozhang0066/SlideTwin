@@ -151,6 +151,9 @@ def test_devcontainer_runs_the_scripts_and_forwards_the_port() -> None:
         assert (DEVCONTAINER.parent / command[1]).is_file()
     assert config["forwardPorts"] == [7860]  # serve.py's default port
     assert config["portsAttributes"]["7860"]["label"] == "SlideTwin"
+    demo = config["remoteEnv"]["SLIDETWIN_MANIFEST"]  # terminals see the demo's slides too
+    assert demo == "${containerWorkspaceFolder}/configs/slides/demo.yaml"
+    assert (DEVCONTAINER.parent / "configs" / "slides" / "demo.yaml").is_file()
 
 
 def fake_repo(tmp_path: Path, *scripts: str) -> Path:
@@ -174,17 +177,18 @@ def codespace_env(**extra: str) -> dict[str, str]:
 @needs_util_linux
 def test_codespace_fetch_script_downloads_once_per_manifest(tmp_path: Path) -> None:
     root = fake_repo(tmp_path, "fetch.sh")
-    manifest = root / "configs" / "slides" / "manifest.yaml"
+    manifest = root / "configs" / "slides" / "demo.yaml"  # the codespace's default
     manifest.parent.mkdir(parents=True)
     manifest.write_text(yaml.safe_dump({"slides": [{"id": "local", "path": "local.tif"}]}))
     slides = root / "data" / "slides"
     slides.mkdir(parents=True)
     (slides / "local.tif").write_bytes(b"x")
 
-    def fetch() -> subprocess.CompletedProcess[str]:
+    def fetch(**extra: str) -> subprocess.CompletedProcess[str]:
         script = root / ".devcontainer" / "fetch.sh"
+        env = codespace_env(**extra)
         return subprocess.run(
-            ["bash", script], env=codespace_env(), capture_output=True, text=True, check=False
+            ["bash", script], env=env, capture_output=True, text=True, check=False
         )
 
     assert fetch().returncode == 0
@@ -201,6 +205,13 @@ def test_codespace_fetch_script_downloads_once_per_manifest(tmp_path: Path) -> N
     assert failed.returncode == 0
     assert "could not be downloaded" in failed.stderr
     assert (slides / ".fetched").read_text().strip() == stamp
+    other = root / "mine.yaml"  # SLIDETWIN_MANIFEST names another manifest
+    other.write_text(yaml.safe_dump({"slides": [{"id": "mine", "path": "mine.tif"}]}))
+    (slides / "mine.tif").write_bytes(b"y")
+    assert fetch(SLIDETWIN_MANIFEST=str(other)).returncode == 0
+    assert (slides / ".fetched").read_text().strip() == hashlib.sha256(
+        other.read_bytes()
+    ).hexdigest()
 
 
 @needs_util_linux

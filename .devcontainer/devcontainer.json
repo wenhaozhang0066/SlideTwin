@@ -14,6 +14,7 @@
     }
   },
   "remoteEnv": {
-    "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
+    "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}",
+    "SLIDETWIN_MANIFEST": "${containerWorkspaceFolder}/configs/slides/demo.yaml"
   }
 }

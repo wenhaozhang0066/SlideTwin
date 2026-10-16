@@ -43,6 +43,9 @@ polygon and the report receipt](docs/media/reading.gif)
 | M4 | MCP tools at `/mcp`; serpentine, random, crop and LLM agents | done |
 | M6 | Lesion metrics, trajectory pictures, profile comparison, evaluation report | done |
 | M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; demo in GitHub Codespaces |
+| M8 | Every common WSI format: content-based router, readers, file sets, provenance | done |
+| M10 | A small demo: three public slides, 0.9 GB | done |
+| M9 | pip package, `slidetwin` command, Python training interface | planned |
 
 ## Quick start
 
@@ -173,7 +176,7 @@ python -m slidetwin.eval evaluate --out data/eval/demo    # metrics, report tabl
 
 ```bash
 docker build -t slidetwin --build-arg GIT_SHA=$(git rev-parse --short HEAD) .
-docker run -p 7860:7860 slidetwin           # downloads the public demo slides (5.3 GB) at start
+docker run -p 7860:7860 slidetwin           # downloads the demo's public slides (0.9 GB) at start
 ```
 
 To read your own slides, mount them and a manifest, and skip the download:
@@ -181,8 +184,12 @@ To read your own slides, mount them and a manifest, and skip the download:
 ```bash
 docker run -p 7860:7860 -e SLIDETWIN_FETCH_SLIDES=0 \
   -v /path/to/slides:/data/slides \
-  -v /path/to/manifest.yaml:/app/configs/slides/manifest.yaml slidetwin
+  -v /path/to/manifest.yaml:/data/manifest.yaml -e SLIDETWIN_MANIFEST=/data/manifest.yaml slidetwin
 ```
+
+The demo's slides (`configs/slides/demo.yaml`) are a small CC0 sample and two CAMELYON16
+lymph-node slides, one negative and one with a micro-metastasis. `configs/slides/manifest.yaml`
+holds the five slides of the evaluation in [docs/EVALUATION.md](docs/EVALUATION.md).
 
 The image limits each client to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
 Hugging Face Space, also set `SLIDETWIN_ALLOWED_HOSTS` to the Space's host name. Sessions live
@@ -194,8 +201,8 @@ start inside the Hugging Face page, open the Space in its own tab.
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/wenhaozhang0066/SlideTwin)
 
 The dev container in `.devcontainer/` runs the demo in a codespace. When the codespace is
-created, it installs SlideTwin and downloads the demo slides. Each time the codespace starts, it
-starts the server on port 7860; the terminal then shows the server log.
+created, it installs SlideTwin and downloads the demo's slides (0.9 GB). Each time the codespace
+starts, it starts the server on port 7860; the terminal then shows the server log.
 
 1. Optional, before creating the codespace: under **Settings > Codespaces**, raise
    **Default idle timeout** (30 minutes; at most 240). The setting applies only to codespaces
@@ -204,7 +211,7 @@ starts the server on port 7860; the terminal then shows the server log.
    start takes a few minutes.
 3. Wait for the terminal to print `SlideTwin is running: https://<name>-7860.app.github.dev`, then
    open that address. At first only you can open it. If it also says that the slides are still
-   downloading, each slide opens once its download is complete (a few minutes).
+   downloading, each slide opens once its download is complete (a minute or two).
 4. To share it, open the **Ports** panel, right-click port 7860 and choose
    **Port Visibility > Public**. Anyone with the address can then use the demo. The port turns
    private again whenever the codespace restarts, so repeat this before each demo.
@@ -220,7 +227,7 @@ starts the server at the same address, and the slides are not downloaded again. 
 gets a new address. The server log is `logs/server.log`.
 
 A codespace counts against your account's monthly quota: 120 core hours on GitHub Free (60
-hours of the default 2-core machine) and 180 on Pro. It also uses about 8 GB of the storage quota
+hours of the default 2-core machine) and 180 on Pro. It also uses about 4 GB of the storage quota
 (15 GB-month on Free) for as long as it exists. Closing the browser tab does not stop it; stop
 it after a demo, and delete it when it is no longer needed. GitHub's terms allow a codespace for
 developing and testing, such as a short demo, not as a permanent public service.

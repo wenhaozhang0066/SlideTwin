@@ -29,7 +29,11 @@ on the start screen.
 - Citations:
   - Ehteshami Bejnordi B, et al. JAMA. 2017;318(22):2199-2210.
   - Litjens G, et al. GigaScience. 2018;7(6):giy065.
-- Demo slides (training set; label and lesion geometry agree): `tumor_082`, `tumor_093`, `tumor_081`,
-  `normal_108`, `tumor_058`. Hashes are pinned in `configs/slides/manifest.yaml`.
+- Demo slides (M10, `configs/slides/demo.yaml`, training set): `normal_108` (0.33 GB, the smallest
+  negative slide) and `tumor_091` (0.55 GB, the smallest slide with a metastasis; its largest deposit
+  is 1.40 mm, a micro-metastasis). Whole slides, since the stricter reading allows no cropping. The
+  S3 copy of `tumor_091` was checked against the pinned hash on 2026-10-16.
+- Evaluation slides (`configs/slides/manifest.yaml`, training set; label and lesion geometry agree):
+  `tumor_082`, `tumor_093`, `tumor_081`, `normal_108`, `tumor_058`.
 - Lesion annotations (ASAP XML) are used only by evaluation scripts and are never reachable through a
   session action.

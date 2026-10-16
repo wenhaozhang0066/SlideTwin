@@ -1,6 +1,7 @@
 # SlideTwin: plan for M9 (pip package and training interface)
 
-Status: draft, waiting for the owner's approval.
+Status: the owner chose the recommended answer to all three decisions below (2026-10-16); M9 starts
+after M10.
 Owner's direction (2026-10-16): the final form is a pip-installable program. The owner trains
 agents on the cluster with the cluster's slides, then open-sources the simulator (first) and the
 agent. Others watch the demo in a browser (M10).

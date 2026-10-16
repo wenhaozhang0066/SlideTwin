@@ -763,7 +763,7 @@ automatically.
   would halve the free hours. GitHub's terms allow this for development and testing, such as a
   short demo, not as a permanent public service.
 
-## M8: every WSI format (in progress, 2026-10-16)
+## M8: every WSI format (2026-10-16)
 
 Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
 
@@ -954,3 +954,21 @@ findings and their fixes:
   that ends by a crash or end of file is tried once more. A library error, a timeout or a damaged
   answer is reported at once: trying again would repeat it, or wait another 120 s. Worker errors
   now read "the worker stopped"; an open error names the backend.
+
+## M10: a small demo (2026-10-16)
+
+- **Owner's decisions.** The 5.3 GB demo was too big. No upload of visitors' own slides. M10 comes
+  before M9. (Also for M9: PyPI only at the open-source release; in training, logs only with
+  `log_dir`, and observations as numpy arrays with `image="jpeg"` as an option.)
+- **Demo slides** (`configs/slides/demo.yaml`, 0.88 GB in all, a sixth of before):
+  - the CC0 test slide (2 MB), which opens at once;
+  - CAMELYON16 `normal_108` (0.33 GB), the smallest negative slide, already a demo slide;
+  - CAMELYON16 `tumor_091` (0.55 GB), the smallest slide with a metastasis. Its largest deposit is
+    1.40 mm by the M6 definition, a micro-metastasis; the smallest tumour slides are all
+    micro-metastases, and the first macro-metastasis (`tumor_075`, 2.65 mm) is 0.94 GB.
+  - Cropping larger slides was ruled out: the stricter reading of the CAMELYON licence allows no
+    image modification (DATA_LICENSES.md).
+- **Where it applies.** The codespace and the Docker image serve `demo.yaml` by default
+  (`SLIDETWIN_MANIFEST`; a codespace's terminals too). `manifest.yaml` keeps the five evaluation
+  slides, so docs/EVALUATION.md and its trajectories replay unchanged. This replaces the five
+  slides of "Publication" for the Space.

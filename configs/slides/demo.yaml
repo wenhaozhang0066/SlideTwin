@@ -1,0 +1,30 @@
+# The demo's slides (M10), small enough for a codespace: 0.9 GB in all. The same rules as
+# manifest.yaml: paths relative to SLIDETWIN_SLIDE_DIR, opaque ids ("c16_" + the first 6 hex
+# digits of the file's sha256), `eval_only` read by evaluation scripts only. manifest.yaml keeps
+# the five slides of docs/EVALUATION.md. Sources and licenses: docs/DATA_LICENSES.md.
+schema_version: 1
+slides:
+  - id: cmu1_small
+    path: openslide-testdata/CMU-1-Small-Region.svs
+    source_url: https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs
+    sha256: ed92d5a9f2e86df67640d6f92ce3e231419ce127131697fbbce42ad5e002c8a7
+    license: CC0-1.0
+    attribution: OpenSlide test data, Carnegie Mellon University
+
+  # CAMELYON16 (training set): the smallest negative slide and the smallest slide with a
+  # metastasis. License: stricter reading until confirmed (see DATA_LICENSES.md): non-commercial
+  # research demo, credit the source, no image modification.
+  - id: c16_f606e8
+    path: camelyon16/normal_108.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/normal_108.tif
+    sha256: f606e8ef726a42840a2e0d33d3ffcd1afe9ea52ff98ef0880502958c2a07fe3c
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: normal, category: negative}
+  - id: c16_29f5ca
+    path: camelyon16/tumor_091.tif
+    source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_091.tif
+    sha256: 29f5ca4caf206a2197a134fd61fd79032cf9f8364495aba5840a842a6967d4a4
+    license: see docs/DATA_LICENSES.md (CAMELYON16)
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    eval_only: {label: tumor, category: micro, annotation: CAMELYON16/annotations/tumor_091.xml}
