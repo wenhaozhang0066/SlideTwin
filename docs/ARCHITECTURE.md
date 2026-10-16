@@ -40,6 +40,10 @@ action.
   (`core/fileset.py`); a single file keeps its plain sha256.
 - `ReaderOptions` carries the manifest's `scene`, `plane`, `channels` and `experimental`; a reader
   refuses a choice its format has no use for.
+- Reader plugins (M9, `readers/plugins.py`): `readers.route` asks installed plugins (entry point
+  group `slidetwin.readers`) about a file the router has no reader for, never about one it serves.
+  A plugin keeps the router's name for a format the router knows, may not take a built-in name for
+  an unknown file, and is recorded with its version in the provenance.
 
 ## Units and coordinates (SPEC 3)
 

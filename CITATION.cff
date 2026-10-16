@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use SlideTwin, please cite it as below."
+title: "SlideTwin: an agent-operable whole-slide image viewer simulator"
+type: software
+authors:
+  - name: "SlideTwin contributors"
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/wenhaozhang0066/SlideTwin"
+abstract: >-
+  SlideTwin simulates reading a whole-slide image through a microscope-like viewer: preset
+  magnifications, a fixed field of view, action costs in virtual time, protocol rules and a
+  replayable log. People use it in a web UI; agents use the same sessions through REST, MCP or an
+  in-process training interface.
+keywords:
+  - digital pathology
+  - whole-slide images
+  - agents
+  - simulator
+  - MCP

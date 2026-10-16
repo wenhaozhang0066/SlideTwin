@@ -45,6 +45,43 @@ _VENDOR_MAGIC = {
 }
 
 
+# Every format name the router gives, with or without a reader. A reader plugin may not give one of
+# them to a file the router does not know (slidetwin/readers/plugins.py).
+BUILT_IN_FORMATS = frozenset(
+    {
+        "akoya-qptiff",
+        "aperio-svs",
+        "argos-avs",
+        "dicom",
+        "dyj",
+        "generic-tiff",
+        "hamamatsu-ndpi",
+        "hamamatsu-vms",
+        "huron-tiff",
+        "kfbio-kfb",
+        "leica-scn",
+        "mikroscan-tiff",
+        "mirax",
+        "motic-mds",
+        "motic-tiff",
+        "ole2",
+        "olympus-vsi",
+        "ome-tiff",
+        "ome-zarr",
+        "philips-isyntax",
+        "philips-tiff",
+        "plain-image",
+        "sakura-svslide",
+        "sqray-sdpc",
+        "trestle-tiff",
+        "unic-tmap",
+        "unknown",
+        "ventana-bif",
+        "zeiss-czi",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class FormatMatch:
     """`reader` is None when the format is refused; `reason` then says what to do instead."""

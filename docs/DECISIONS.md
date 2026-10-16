@@ -1014,4 +1014,24 @@ Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisi
 - **Downloads try again.** `fetch_slides` retries a network or server error up to four times; a
   4xx or a disk error is final.
 - `slidetwin/cli.py` and `slidetwin/scan.py` join the coverage gate.
+- **Reader plugins** (`readers/plugins.py`, PLAN_M8 decisions 1 and 3). Installed readers in the
+  entry point group `slidetwin.readers` are asked, in name order, only about a file the router has
+  no reader for, so a plugin never replaces a built-in reader. For a format the router names
+  (`kfbio-kfb`, `sqray-sdpc`, `plain-image`, ...) a plugin must keep that name; for an unknown
+  file it may not take a built-in one (`formats.BUILT_IN_FORMATS`, checked against the router's
+  source by a test). A plugin that fails while sniffing claims nothing; one that fails while
+  opening is reported by slide id and exception type. The provenance names the plugin and its
+  version. The interface is experimental until 1.0.
+- **Docker image** (PLAN_M8 decision 2). The base install, OpenSlide and iSyntax. Because
+  OpenSlide is LGPL-2.1, the image holds the openslide-bin release archive of exactly the build it
+  installs (pinned with its sha256): it contains the sources and licences of OpenSlide and every
+  library openslide-bin bundles. `/usr/share/slidetwin/THIRD_PARTY_NOTICES.txt` collects the
+  licence files of every installed package and the notices in `third_party/` (libisyntax and the
+  sources it bundles, which pyisyntax's wheel does not carry).
+  - slideio is left out of the image: its wheel bundles native libraries without their notices.
+    VSI and ZVI still work in local installs and the codespace, which redistribute nothing.
+  - A new CI job builds the image and uses it (`scripts/smoke_docker.sh`): a session on the CC0
+    slide, the readers it holds and leaves out, the source archive and the notices.
+- **Codespace** installs every reader extra.
+- **Licence table**: [THIRD_PARTY.md](THIRD_PARTY.md).
 

@@ -116,8 +116,10 @@ were checked on synthetic files only and are served when the slide's manifest en
 | Zeiss ZVI (slideio) | `.zvi` | | refused for now (no brightfield sample validated) |
 
 Not supported: fluorescence and multiplex images, plain images (JPEG, PNG, JPEG 2000), and
-formats without an open reader (SQRAY SDPC, UNIC TMAP, KFBio KFB, Motic MDS/MDSX, DYJ). Labels, macro photos and embedded thumbnails are never
-read, whatever the format.
+formats without an open reader (SQRAY SDPC, UNIC TMAP, KFBio KFB, Motic MDS/MDSX, DYJ). Labels,
+macro photos and embedded thumbnails are never read, whatever the format. A format SlideTwin has
+no reader for can be added on your own machine with a reader plugin: see
+`slidetwin/readers/plugins.py` (experimental until 1.0).
 
 ## The API in one minute
 
@@ -242,7 +244,10 @@ The demo's slides (`configs/slides/demo.yaml`) are a small CC0 sample and two CA
 lymph-node slides, one negative and one with a micro-metastasis. `configs/slides/manifest.yaml`
 holds the five slides of the evaluation in [docs/EVALUATION.md](docs/EVALUATION.md).
 
-The image limits each client to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
+The image reads every format but VSI and ZVI (slideio is left out, see
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)); it carries the licence notices of everything it
+installs and OpenSlide's source under `/usr/share/slidetwin/`. It limits each client to 20
+requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
 Hugging Face Space, also set `SLIDETWIN_ALLOWED_HOSTS` to the Space's host name. Sessions live
 in memory, so a restart ends them: download the trajectory at the end. If the download does not
 start inside the Hugging Face page, open the Space in its own tab.
@@ -294,6 +299,9 @@ human logs with `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml`.
 - Evaluation report: [docs/EVALUATION.md](docs/EVALUATION.md)
 - Pilot guide: [docs/PILOT.md](docs/PILOT.md)
 - Data sources and licenses: [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md)
+- Third-party software and licences: [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)
+- Contributing, security, changes: [CONTRIBUTING.md](CONTRIBUTING.md),
+  [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md); citation: [CITATION.cff](CITATION.cff)
 
 ## Data
 

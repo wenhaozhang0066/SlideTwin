@@ -74,7 +74,21 @@ packages = ["slidetwin"]
 "configs" = "slidetwin/configs"  # profiles, protocols and public manifests travel with the code
 
 [tool.hatch.build.targets.sdist]
-include = ["slidetwin", "configs", "tests", "scripts", "docs", "README.md", "README_zh.md", "LICENSE"]
+include = [
+  "slidetwin",
+  "configs",
+  "third_party",
+  "tests",
+  "scripts",
+  "docs",
+  "README.md",
+  "README_zh.md",
+  "LICENSE",
+  "CHANGELOG.md",
+  "CITATION.cff",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+]
 
 [tool.ruff]
 line-length = 100

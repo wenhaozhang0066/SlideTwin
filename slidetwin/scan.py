@@ -18,7 +18,6 @@ import yaml
 
 from slidetwin.core.errors import SlideTwinError
 from slidetwin.core.fileset import check_complete, fileset_sha256
-from slidetwin.core.formats import sniff
 from slidetwin.core.registry import check_servable, file_sha256
 from slidetwin.core.slide_source import ReaderOptions, SlideSource
 
@@ -80,9 +79,9 @@ def check(path: Path, *, name: str | None = None, hash_files: bool = False) -> C
     """Open `path` as the server would (router, reader, servable check) and describe it."""
     name = name or path.name
     try:
-        match = sniff(path, name)
-        from slidetwin.readers import open_source  # the readers import their libraries
+        from slidetwin.readers import open_source, route  # the readers import their libraries
 
+        match = route(path, name)
         source = open_source(path, match, name=name, mpp_override=None, options=ReaderOptions())
     except SlideTwinError as err:
         return Checked(path, refused=_reason(err))

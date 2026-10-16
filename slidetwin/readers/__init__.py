@@ -1,8 +1,9 @@
 """Slide readers (M8), one per format family, chosen by `slidetwin.core.formats.sniff`.
 
-`open_source` opens a slide with the reader the router chose. Each reader module imports its
-library at the top, so a missing library is reported with the extra to install; there is no silent
-fallback to another reader. A reader module provides
+`route` names a slide's format and reader: the router's, or for a file it has no reader for, an
+installed reader plugin's (`readers/plugins.py`). `open_source` opens a slide with that reader.
+Each reader module imports its library at the top, so a missing library is reported with the extra
+to install; there is no silent fallback to another reader. A reader module provides
 `open_reader(path, match, *, name, mpp_override, options) -> SlideSource`.
 """
 
@@ -13,7 +14,7 @@ import logging
 from pathlib import Path
 
 from slidetwin.core.errors import SlideMetadataError
-from slidetwin.core.formats import FormatMatch
+from slidetwin.core.formats import FormatMatch, sniff
 from slidetwin.core.geometry import Point
 from slidetwin.core.slide_source import ReaderOptions, SlideSource
 
@@ -57,6 +58,17 @@ READERS: dict[str, tuple[str, str | None]] = {
 }
 
 
+def route(path: Path, name: str = "slide") -> FormatMatch:
+    """The slide's format and reader: the router's, or for a file it has no reader for, the
+    first reader plugin's that claims it."""
+    match = sniff(path, name)
+    if match.reader is not None:
+        return match
+    from slidetwin.readers import plugins
+
+    return plugins.route(path, match)
+
+
 def open_source(
     path: Path,
     match: FormatMatch,
@@ -65,6 +77,12 @@ def open_source(
     mpp_override: Point | None = None,
     options: ReaderOptions | None = None,
 ) -> SlideSource:
+    if match.reader is not None and match.reader.startswith("plugin:"):
+        from slidetwin.readers import plugins
+
+        return plugins.open_plugin(
+            path, match, name=name, mpp_override=mpp_override, options=options or ReaderOptions()
+        )
     if match.reader is None:
         raise SlideMetadataError(
             f"Slide '{name}' is in a format SlideTwin cannot read ({match.format}).",

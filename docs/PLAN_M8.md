@@ -9,9 +9,8 @@ Requirement (owner, 2026-10-15): SlideTwin must support all whole-slide image fo
 Evidence: a survey of 29 scanner formats, 7 open formats and 8 plain image types. Each format was
 probed with the readers that apply to it (OpenSlide 4.0.1, tiffslide 4.0, tifffile, wsidicom,
 slideio 2.10, pylibCZIrw, pyisyntax, Bio-Formats 8.5), on real samples where they exist. Formats
-without a sample or an open reader were researched only. The results are kept outside the repo
-(not published). A second reviewer checked this plan against
-them.
+without a sample or an open reader were researched only. The results are kept outside the
+repository. A second reviewer checked this plan against them.
 
 ## What changes
 

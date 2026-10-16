@@ -55,6 +55,16 @@ jobs:
       - name: Install the wheel in a fresh environment and use it outside the repository
         run: bash scripts/smoke_wheel.sh dist/slidetwin-*.whl
 
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t slidetwin --build-arg GIT_SHA="${GITHUB_SHA::7}" .
+      - name: Run it and use it
+        run: bash scripts/smoke_docker.sh slidetwin
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -29,7 +29,6 @@ from slidetwin.core.errors import (
     SlideNotFound,
 )
 from slidetwin.core.fileset import check_complete, fileset_sha256
-from slidetwin.core.formats import sniff
 from slidetwin.core.geometry import Point
 from slidetwin.core.render import MAX_READ_PIXELS
 from slidetwin.core.slide_source import ReaderOptions, SlideSource, open_slide
@@ -367,9 +366,9 @@ class SlideRegistry:
 
 
 def _open_auto(path: Path, entry: SlideEntry, override: Point | None) -> SlideSource:
-    from slidetwin.readers import open_source
+    from slidetwin.readers import open_source, route
 
-    match = sniff(path, entry.id)
+    match = route(path, entry.id)
     if entry.format is not None and entry.format != match.format:
         raise SlideMetadataError(
             f"Slide '{entry.id}' is {match.format}, not {entry.format} as the manifest says.",
