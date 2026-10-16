@@ -846,23 +846,28 @@ Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
     manifest names, else its middle plane (as OpenSlide), with the plane order unverified.
   - OME-TIFF with interleaved RGB and Akoya QPTIFF brightfield; multichannel, planar and
     fluorescence images are refused.
-- **slideio in a worker process** (`readers/slideio_worker.py`, for VSI and ZVI). slideio crashed
+- **Libraries in worker processes** (`readers/worker.py`): slideio for VSI and ZVI
+  (`readers/slideio_worker.py`) and, since the review below, pyisyntax for iSyntax. slideio crashed
   the process on several formats in the survey, so it never runs in the server. Each open slide
   has a fresh Python worker (`python -I -c`; multiprocessing's spawn would rerun the server's main
   module). It speaks JSON and raw pixel bytes over a socket pair, never pickles, and every message
   is checked and bounded. A crash, a 120 s timeout or a damaged answer fails that read; the next
-  read starts a new worker, which must report the same scenes. Scene names, raw metadata,
-  auxiliary images and `get_scene_by_name` (it segfaults) are never used; slideio's log is off,
-  because it prints file paths.
+  read starts a new worker, which must report the same slide. Each library is an adapter module
+  whose `open_slide` and `read` run in the worker. A worker imports the server's own slidetwin
+  first, whatever came first on `sys.path` later. Scene names, raw metadata, auxiliary images and
+  `get_scene_by_name` (it segfaults) are never used; slideio's log is off, because it prints file
+  paths.
 - **Olympus VSI** (`readers/vsi.py`). The file set is the .vsi and every .ets of its
   `_<stem>_/stack*/` folder; a missing or renamed folder, or slideio finding no scene, is refused.
   One slide per scene index; 3-channel 8-bit with one plane and one time point only; exact 2^k
   levels; white fill. OS-2 matches the survey (levels, mpp 0.346, region means to 0.01).
-- **Philips iSyntax** (`readers/isyntax.py`). Every pyisyntax call runs on one thread for the whole
-  process (other threads crash it). Only interface 5.x (version 1) is read; version 2 is refused.
-  Levels are exact 2^n, and levels n >= 2 are read at x - round(offset / 2^n). The pixel size is
-  used only when libisyntax knows it. Label, macro and barcode are never read. Two samples match
-  the survey; neither has a pinned public hash yet, so CI has no iSyntax sample.
+- **Philips iSyntax** (`readers/isyntax.py`). pyisyntax runs in a worker process per slide (see the
+  review below); a worker has one thread, which keeps libisyntax's rule that a call from any other
+  thread crashes it. Only interface 5.x (version 1) is read; version 2 is refused. Levels are
+  exact 2^n reductions, placed by their transforms where libisyntax puts them: 0.5 level-0 px in
+  at level 1, 2^(n-1) + 1.5 at level n >= 2 (see the review). The pixel size is used only when
+  libisyntax knows it. Label, macro and barcode are never read. Two samples match the survey;
+  neither has a pinned public hash yet, so CI has no iSyntax sample.
 - **Zeiss ZVI** (`readers/zvi.py`). Every ZVI is refused for now: the only sample is a
   fluorescence ortho-view export, and no brightfield ZVI has been checked. A pure-Python OLE2 check
   refuses other OLE2 files (such as Motic MDS) before slideio runs; ortho-view exports, z-stacks,
@@ -905,3 +910,47 @@ findings and their fixes:
 - **CI hang.** A worker test sent 1 MiB into a pipe that nothing read. GitHub runners' socket
   buffers hold about 200 KB, so the send blocked; the cluster's 16 MiB buffers hid it. The test
   now sends only the length header.
+- **iSyntax in a worker** (critical). libisyntax ran in the server, on one thread for the whole
+  process. Copies cut at 0.5-2% of their data crashed the server (SIGSEGV) at their first view;
+  copies cut at 10-30% hung `read_region`, and with it every iSyntax slide. pyisyntax now runs in
+  the shared worker (above), and the process-wide thread is gone.
+  - libisyntax does not check how much a file read returned, so past the end of a truncated copy
+    it decoded whatever its buffer held: a crash, an endless loop, or wrong pixels (copies cut at
+    50-99% "worked"). After the end of the XML header every read it makes asks for data the file
+    lists (the seektable at open, then codeblocks). A read that comes back short now ends the
+    worker at once, with an exit status the server knows, and the open or the read fails with "the
+    slide file is shorter than its header says". A copy cut in its seektable is refused at open;
+    one cut in its codeblocks fails only the reads that need the missing part.
+  - Checked: on five complete samples no read came back short, and each seektable's last codeblock
+    ends exactly at the end of its file. Of the review's 26 damaged copies none crashes or hangs
+    the process now (3 did).
+  - Alternative: check the file size against the seektable at open. libisyntax does not expose it,
+    and SlideTwin would need its own parser of an undocumented layout; the worker and the read
+    check cover the same copies without one.
+  - libisyntax still prints to the server's stdout and stderr, which workers share (sizes and
+    offsets, no file names).
+- **iSyntax level offsets** (correctness review). Reading level n >= 2 at x - round(origin / 2^n)
+  (OpenSlide's rule, from the origin offsets libisyntax reports) over-corrected: level 3 was served
+  2.5 level-0 px off, level 5 14.5, and level 1 half a pixel.
+  - Measured by matching each level with the 2^n box means of level 0, to a fraction of a pixel:
+    libisyntax's pixel 0 lies 0.5 level-0 px in at level 1 and 2^(n-1) + 1.5 at level n >= 2. On
+    four samples the medians over 12 tissue windows lay within 0.06 px of these at levels 1-3 and
+    within 0.25 at levels 4-5. The review's whole-pixel search had found 2^(n-1) + 1, half a pixel
+    short; at level 1 the half pixel cuts the squared error 2.5-4 fold.
+  - The levels are read as libisyntax serves them, and these offsets are their transforms'. Other
+    origin offsets from libisyntax are refused. The provenance records `level_offsets` (level-0 px)
+    instead of `level_shifts`, so iSyntax trajectories recorded before do not replay: their pixels
+    differ. At level n a strip as wide as the offset along the top and left edges of the slide has
+    no level pixel and renders white.
+  - An oracle test pins the offsets on the fake library and, locally, on two samples.
+- **OLE2 limits** (ZVI). A loop in the directory chain or in the DIFAT chain was walked as far as
+  the file size allowed, keeping every sector: sparse files of a few hundred MB took 0.7-5.7 GB
+  before the refusal, and a looping DIFAT could even be accepted. Both walks now refuse a sector
+  they have visited; the DIFAT walk stops at the FAT sectors the header counts, never more than
+  the file size allows; a directory of more than 4096 entries is refused (the ZVIs on hand have
+  35-233); a MemoryError is a refusal, not an HTTP 500.
+- **Worker restart at open.** A worker that stopped while opening a slide (killed from outside,
+  short of memory) was reported as damage, SLIDE_METADATA, though the next attempt worked. A start
+  that ends by a crash or end of file is tried once more. A library error, a timeout or a damaged
+  answer is reported at once: trying again would repeat it, or wait another 120 s. Worker errors
+  now read "the worker stopped"; an open error names the backend.

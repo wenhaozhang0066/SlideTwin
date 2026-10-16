@@ -89,7 +89,7 @@ class _Opened:
 
     dims: tuple[tuple[int, int], ...]
     scales: tuple[int, ...]  # level n is a 2^scale reduction
-    offsets: tuple[float, ...]  # origin offset of each level, level-0 pixels
+    offsets: tuple[float, ...]  # the origin offsets libisyntax reports (not where levels lie)
     model: int  # data model (interface) major version
     mpp: tuple[float, float] | None  # None when libisyntax does not know it
 
