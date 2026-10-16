@@ -42,7 +42,7 @@ uvicorn slidetwin.api.main:app --reload --port 7860
 
 ## 切片格式
 
-SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide) 的需要先 `pip install "slidetwin[openslide]"`。
+SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide)、(slideio) 或 (isyntax) 的需要先安装对应扩展，例如 `pip install "slidetwin[openslide]"`。
 
 | 格式 | 文件 | 支持 | 拒绝或实验性 |
 |---|---|---|---|
@@ -62,8 +62,11 @@ SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会�
 | ARGOS AVS | `.avs` | 明场，可选 z-stack 的焦平面 | |
 | OME-TIFF | `.ome.tif` | 交错存储的 RGB | 多通道、按平面存储、z-stack |
 | Akoya QPTIFF | `.qptiff` | 明场 | 荧光 |
+| Olympus VSI (slideio) | `.vsi` 及其 `_<name>_` 文件夹 | 明场 8 位 RGB，单焦平面；一个场景一张切片 | 荧光、16 位、z-stack |
+| Philips iSyntax (isyntax) | `.isyntax` | 第 1 版，像素尺寸已知 | iSyntax 第 2 版 |
+| Zeiss ZVI (slideio) | `.zvi` | | 暂时全部拒绝（还没有可验证的明场样本） |
 
-暂不支持：荧光与多重标记图像、普通图片（JPEG、PNG、JPEG 2000）、Olympus VSI、Zeiss ZVI 和 Philips iSyntax（已在计划中），以及没有开源读取器的格式（SQRAY SDPC、UNIC TMAP、KFBio KFB、Motic MDS/MDSX、DYJ）。无论哪种格式，标签、宏观照片和内嵌缩略图都不会被读取。
+暂不支持：荧光与多重标记图像、普通图片（JPEG、PNG、JPEG 2000），以及没有开源读取器的格式（SQRAY SDPC、UNIC TMAP、KFBio KFB、Motic MDS/MDSX、DYJ）。无论哪种格式，标签、宏观照片和内嵌缩略图都不会被读取。
 
 ## MCP 与 agent
 

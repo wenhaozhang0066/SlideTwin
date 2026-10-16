@@ -64,7 +64,8 @@ coverage gate). The browser tests need `pip install -e ".[dev,e2e]"` and
 SlideTwin picks the reader from the file's content. A format without a reader it can trust is
 refused with a message that says how to convert the slide; it never guesses. "Experimental" formats
 were checked on synthetic files only and are served when the slide's manifest entry sets
-`experimental: true`. Readers marked (openslide) need `pip install "slidetwin[openslide]"`.
+`experimental: true`. Readers marked (openslide), (slideio) or (isyntax) need that extra, e.g.
+`pip install "slidetwin[openslide]"`.
 
 | Format | Files | Served | Refused or experimental |
 |---|---|---|---|
@@ -84,10 +85,12 @@ were checked on synthetic files only and are served when the slide's manifest en
 | ARGOS AVS | `.avs` | brightfield, a focal plane of a z-stack | |
 | OME-TIFF | `.ome.tif` | interleaved RGB | multichannel, planar, z-stacks |
 | Akoya QPTIFF | `.qptiff` | brightfield | fluorescence |
+| Olympus VSI (slideio) | `.vsi` and its `_<name>_` folder | brightfield 8-bit RGB, one plane; one slide per scene | fluorescence, 16-bit, z-stacks |
+| Philips iSyntax (isyntax) | `.isyntax` | version 1 with a known pixel size | iSyntax 2 |
+| Zeiss ZVI (slideio) | `.zvi` | | refused for now (no brightfield sample validated) |
 
-Not supported: fluorescence and multiplex images, plain images (JPEG, PNG, JPEG 2000), Olympus
-VSI, Zeiss ZVI and Philips iSyntax (planned), and formats without an open reader (SQRAY SDPC,
-UNIC TMAP, KFBio KFB, Motic MDS/MDSX, DYJ). Labels, macro photos and embedded thumbnails are never
+Not supported: fluorescence and multiplex images, plain images (JPEG, PNG, JPEG 2000), and
+formats without an open reader (SQRAY SDPC, UNIC TMAP, KFBio KFB, Motic MDS/MDSX, DYJ). Labels, macro photos and embedded thumbnails are never
 read, whatever the format.
 
 ## The API in one minute

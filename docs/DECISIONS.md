@@ -846,4 +846,25 @@ Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
     manifest names, else its middle plane (as OpenSlide), with the plane order unverified.
   - OME-TIFF with interleaved RGB and Akoya QPTIFF brightfield; multichannel, planar and
     fluorescence images are refused.
+- **slideio in a worker process** (`readers/slideio_worker.py`, for VSI and ZVI). slideio crashed
+  the process on several formats in the survey, so it never runs in the server. Each open slide
+  has a fresh Python worker (`python -I -c`; multiprocessing's spawn would rerun the server's main
+  module). It speaks JSON and raw pixel bytes over a socket pair, never pickles, and every message
+  is checked and bounded. A crash, a 120 s timeout or a damaged answer fails that read; the next
+  read starts a new worker, which must report the same scenes. Scene names, raw metadata,
+  auxiliary images and `get_scene_by_name` (it segfaults) are never used; slideio's log is off,
+  because it prints file paths.
+- **Olympus VSI** (`readers/vsi.py`). The file set is the .vsi and every .ets of its
+  `_<stem>_/stack*/` folder; a missing or renamed folder, or slideio finding no scene, is refused.
+  One slide per scene index; 3-channel 8-bit with one plane and one time point only; exact 2^k
+  levels; white fill. OS-2 matches the survey (levels, mpp 0.346, region means to 0.01).
+- **Philips iSyntax** (`readers/isyntax.py`). Every pyisyntax call runs on one thread for the whole
+  process (other threads crash it). Only interface 5.x (version 1) is read; version 2 is refused.
+  Levels are exact 2^n, and levels n >= 2 are read at x - round(offset / 2^n). The pixel size is
+  used only when libisyntax knows it. Label, macro and barcode are never read. Two samples match
+  the survey; neither has a pinned public hash yet, so CI has no iSyntax sample.
+- **Zeiss ZVI** (`readers/zvi.py`). Every ZVI is refused for now: the only sample is a
+  fluorescence ortho-view export, and no brightfield ZVI has been checked. A pure-Python OLE2 check
+  refuses other OLE2 files (such as Motic MDS) before slideio runs; ortho-view exports, z-stacks,
+  time series and mosaics are refused for good or until validated.
 

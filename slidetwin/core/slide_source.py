@@ -343,9 +343,12 @@ class OpenSlideSource(BaseSource):
 
 def unreadable_error(name: str, backend: str, err: BaseException) -> SlideMetadataError:
     # Only the slide id and the exception type reach clients; file names can carry labels.
+    hint = "The file may be damaged or incompletely copied; check it with its vendor's viewer."
+    if backend == "tiffslide":  # the named backend of earlier manifests: OpenSlide may read it
+        hint = "Check the file, or set backend: openslide for this slide in the manifest."
     return SlideMetadataError(
         f"Slide '{name}' could not be opened with the {backend} backend ({type(err).__name__}).",
-        hint="Check the file, or set backend: openslide for this slide in the manifest.",
+        hint=hint,
     )
 
 
