@@ -189,4 +189,6 @@ def test_m1_acceptance_script(cmu_small_path: Path, tmp_path: Path) -> None:
         import demo_m1
     finally:
         sys.path.pop(0)
-    assert demo_m1.main(["--out", str(tmp_path / "demo")]) == 0
+    # The test slide lives wherever fetch_test_data.py put it (CI: data/testdata), not data/slides.
+    slide_dir = str(cmu_small_path.parent.parent)
+    assert demo_m1.main(["--out", str(tmp_path / "demo"), "--slide-dir", slide_dir]) == 0
