@@ -37,6 +37,7 @@ class Layout:
     sector_size: int
     first_dir: int  # sector of the first directory entries
     fat_sectors: int
+    first_difat: int = END  # the first DIFAT sector; END when the header lists every FAT sector
 
     def offset(self, sector: int) -> int:
         return (sector + 1) * self.sector_size
@@ -121,4 +122,4 @@ def write_ole2(
         following = first_difat + i + 1 if i + 1 < n_difat else END
         difat += struct.pack(f"<{per}I", *chunk, following)
     path.write_bytes(bytes(header) + struct.pack(f"<{len(fat)}I", *fat) + raw + difat)
-    return Layout(sector_size, first_dir, fat_sectors)
+    return Layout(sector_size, first_dir, fat_sectors, first_difat if n_difat else END)

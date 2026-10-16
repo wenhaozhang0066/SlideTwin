@@ -5,6 +5,7 @@ the worker; Zeiss-1-Merged (tier 3) checks the real library."""
 from __future__ import annotations
 
 import struct
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ import pytest
 import slidetwin.readers.slideio_worker as worker
 import slidetwin.readers.zvi as reader
 from slidetwin.core.errors import SlideMetadataError
-from slidetwin.core.formats import FormatMatch, sniff
+from slidetwin.core.formats import CONVERT, FormatMatch, sniff
 from slidetwin.core.slide_source import ReaderOptions
 from slidetwin.readers import open_source
 from slidetwin.readers.slideio_worker import SlideioWorker
@@ -188,6 +189,70 @@ def test_damaged_directories(tmp_path: Path, change: Any) -> None:
     write_ole2(path, ZVI)
     change(path)
     with pytest.raises(SlideMetadataError, match="has an OLE2 directory that cannot be read"):
+        ole2_entries(path, "s1")
+
+
+def peak_bytes(fn: Any) -> int:
+    """The most memory Python held while `fn` ran, beyond what it held before."""
+    tracemalloc.start()
+    try:
+        fn()
+    finally:
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    return peak
+
+
+@pytest.mark.parametrize(("chain", "size_mb"), [("directory", 64), ("sector table", 16)])
+def test_a_loop_is_found_at_once_whatever_the_file_size(
+    tmp_path: Path, chain: str, size_mb: int
+) -> None:
+    """Review r02: a loop in the directory chain or in the sector table's chain (DIFAT) was walked
+    until the walk was as long as the file, keeping every sector, so a sparse file of a few hundred
+    MB took GBs. A loop must be refused at its first repeat, with memory independent of the file
+    size."""
+    path = tmp_path / "loop.zvi"
+    if chain == "directory":
+        layout = write_ole2(path, ZVI)
+        damage(path, layout.offset(0) + 4 * layout.first_dir, struct.pack("<I", layout.first_dir))
+    else:
+        layout = write_ole2(path, ZVI, fat_sectors=110)  # 110 FAT sectors need one DIFAT sector
+        difat = layout.offset(layout.first_difat)
+        damage(path, difat + layout.sector_size - 4, struct.pack("<I", layout.first_difat))
+        damage(path, 44, struct.pack("<I", 0xFFFFFFFF))  # FAT sectors
+        damage(path, 72, struct.pack("<I", 0xFFFFFFFF))  # DIFAT sectors
+    with path.open("r+b") as f:
+        f.truncate(size_mb << 20)  # sparse: no disk space, but n_sectors grows with it
+
+    def refuse() -> None:
+        with pytest.raises(SlideMetadataError, match="OLE2 directory that cannot be read"):
+            ole2_entries(path, "s1")
+
+    assert peak_bytes(refuse) < 1 << 20
+
+
+def test_a_directory_larger_than_any_zvi_is_refused(tmp_path: Path) -> None:
+    """A ZVI directory holds a few entries per raw image. More than DIRECTORY_MAX entries are
+    refused before the directory is read in full."""
+    path = tmp_path / "big.zvi"
+    streams = {f"S{i}": STREAM for i in range(reader.DIRECTORY_MAX)}  # the root makes one more
+    write_ole2(path, streams, fat_sectors=9)
+    with pytest.raises(SlideMetadataError, match=r"more than 4096 entries") as err:
+        ole2_entries(path, "s1")
+    assert err.value.hint == CONVERT
+    write_ole2(path, dict(list(streams.items())[:-1]), fat_sectors=9)  # exactly DIRECTORY_MAX
+    assert len(ole2_entries(path, "s1")) == reader.DIRECTORY_MAX - 1  # all but the root
+
+
+def test_memory_errors_are_refusals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "a.zvi"
+    write_ole2(path, ZVI)
+
+    def exhausted(raw: bytes) -> dict[str, int]:
+        raise MemoryError
+
+    monkeypatch.setattr(reader, "_tree", exhausted)
+    with pytest.raises(SlideMetadataError, match=r"cannot be read \(MemoryError\)"):
         ole2_entries(path, "s1")
 
 

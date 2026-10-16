@@ -33,6 +33,9 @@ from slidetwin.readers.slideio_worker import DTYPES, SceneInfo, SlideioWorker
 
 STORAGE, STREAM, ROOT = 1, 2, 5  # OLE2 directory entry types
 BAND_ROWS = 256  # rows per read when the pixels are checked
+# Directory entries (128 bytes each) read at most. A ZVI has about six per raw image: Zeiss-1-Merged
+# and Zeiss-2-Merged have 35, Zeiss-1-Stacked (39 raw images) 233.
+DIRECTORY_MAX = 4096
 _OLE2 = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _END, _FREE = 0xFFFFFFFE, 0xFFFFFFFF  # end of a sector chain; no entry
 _ITEM = re.compile(r"Image/Item\(\d+\)")
@@ -140,13 +143,25 @@ def _refuse_pixels(info: SceneInfo, name: str) -> NoReturn:
 # --- the OLE2 directory (MS-CFB), read without slideio -----------------------------------------
 
 
+class _TooLarge(ValueError):
+    """The directory has more than DIRECTORY_MAX entries."""
+
+
 def ole2_entries(path: Path, name: str) -> dict[str, int]:
     """Storages and streams of an OLE2 compound file by path (for example 'Image/Contents') and
-    their entry type. Only the header, the sector table and the directory are read."""
+    their entry type. Only the header, the sector table and the directory are read, and what is
+    kept in memory does not grow with the file: chains that loop are refused at their first repeat,
+    and so is a directory larger than any ZVI's."""
     try:
         with path.open("rb") as f:
             return _directory(f, path.stat().st_size)
-    except (OSError, ValueError, struct.error) as err:
+    except _TooLarge:
+        raise SlideMetadataError(
+            f"Slide '{name}' has an OLE2 directory of more than {DIRECTORY_MAX} entries; a ZVI "
+            "image has about six per raw image, and SlideTwin does not read one this large.",
+            hint=CONVERT,
+        ) from None
+    except (OSError, ValueError, struct.error, MemoryError) as err:
         raise SlideMetadataError(
             f"Slide '{name}' has an OLE2 directory that cannot be read ({type(err).__name__}).",
             hint="The slide file may be damaged or incompletely downloaded.",
@@ -163,8 +178,9 @@ def _directory(f: BinaryIO, size: int) -> dict[str, int]:
     sector_size = 1 << shift
     n_fat, first_dir = struct.unpack_from("<II", header, 44)
     first_difat, n_difat = struct.unpack_from("<II", header, 68)
-    n_sectors = size // sector_size  # every chain is shorter than this
+    n_sectors = size // sector_size  # every sector number is smaller than this
     per_sector = sector_size // 4
+    n_fat = min(n_fat, -(-n_sectors // per_sector))  # FAT sectors beyond these describe no sector
 
     def sector(s: int) -> bytes:
         if s >= n_sectors:
@@ -172,9 +188,13 @@ def _directory(f: BinaryIO, size: int) -> dict[str, int]:
         f.seek((s + 1) * sector_size)
         return f.read(sector_size)
 
+    # The sector numbers of the FAT: 109 in the header, then 127 (or 1023) per DIFAT sector.
     difat = list(struct.unpack_from("<109I", header, 76))
-    s = first_difat
-    for _ in range(min(n_difat, n_sectors)):
+    s, seen = first_difat, set[int]()
+    while len(difat) < n_fat and len(seen) < n_difat:
+        if s in seen:
+            raise ValueError("the sector table's chain loops")
+        seen.add(s)
         values = struct.unpack(f"<{per_sector}I", sector(s))
         difat.extend(values[:-1])
         s = values[-1]
@@ -186,15 +206,16 @@ def _directory(f: BinaryIO, size: int) -> dict[str, int]:
         (value,) = struct.unpack_from("<I", sector(fat[s // per_sector]), (s % per_sector) * 4)
         return int(value)
 
-    parts = []
-    s = first_dir
-    for _ in range(n_sectors):
-        if s == _END:
-            break
+    parts: list[bytes] = []
+    s, seen = first_dir, set()
+    while s != _END:
+        if s in seen:
+            raise ValueError("the directory chain loops")
+        if len(parts) * sector_size >= DIRECTORY_MAX * 128:
+            raise _TooLarge
+        seen.add(s)
         parts.append(sector(s))
         s = following(s)
-    else:
-        raise ValueError("the directory does not end")
     return _tree(b"".join(parts))
 
 
