@@ -2,6 +2,7 @@
 data/
 cache/
 logs/
+.claude/
 .env
 *.env
 .venv*/
