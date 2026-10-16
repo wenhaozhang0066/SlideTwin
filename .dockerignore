@@ -1,0 +1,13 @@
+# The image needs these files only; nothing else of a checkout (data, logs, caches, .git, compiled
+# files that hold local paths) may reach it.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!slidetwin/
+!configs/
+!third_party/
+!scripts/third_party_notices.py
+!scripts/fetch_checked.py
+**/__pycache__
+**/*.pyc

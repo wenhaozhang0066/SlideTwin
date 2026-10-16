@@ -9,6 +9,8 @@
 
 Paths default as for the server: SLIDETWIN_SLIDE_DIR (data/slides), SLIDETWIN_MANIFEST
 (<configs>/slides/manifest.yaml), SLIDETWIN_LOG_DIR (logs). --demo uses the demo's public slides.
+Paths given as options are made absolute at once, so a process that changes its working folder
+(an MCP host may start `slidetwin mcp` anywhere) still finds them.
 """
 
 from __future__ import annotations
@@ -22,9 +24,22 @@ from slidetwin import __version__
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # odd file names never stop a command
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     args = _parser().parse_args(argv)
-    code: int = args.run(args)
+    from slidetwin.core.errors import SlideTwinError
+
+    try:
+        code: int = args.run(args)
+    except SlideTwinError as err:  # a configuration problem: say it, without a traceback
+        print(f"slidetwin: {err.message}" + (f" {err.hint}" if err.hint else ""), file=sys.stderr)
+        return 2
     return code
+
+
+def _path(value: str) -> Path:
+    return Path(value).expanduser().absolute()
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -38,16 +53,23 @@ def _parser() -> argparse.ArgumentParser:
         return q
 
     def slides(q: argparse.ArgumentParser) -> None:
-        q.add_argument("--slides", type=Path, help="slide folder (SLIDETWIN_SLIDE_DIR)")
-        q.add_argument("--manifest", type=Path, help="slide manifest (SLIDETWIN_MANIFEST)")
+        q.add_argument("--slides", type=_path, help="slide folder (SLIDETWIN_SLIDE_DIR)")
+        q.add_argument("--manifest", type=_path, help="slide manifest (SLIDETWIN_MANIFEST)")
+
+    def logs(q: argparse.ArgumentParser) -> None:
+        q.add_argument(
+            "--log-dir", type=_path, help="where readings are logged (SLIDETWIN_LOG_DIR)"
+        )
 
     q = command("serve", "Web UI, REST API and MCP over HTTP.", _serve)
     slides(q)
+    logs(q)
     q.add_argument("--demo", action="store_true", help="download and serve the demo's slides")
     q.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to listen on every interface")
     q.add_argument("--port", type=int, default=7860)
     q = command("mcp", "MCP over stdio, for a local agent.", _mcp)
     slides(q)
+    logs(q)
     q = command("check", "What SlideTwin reads in each slide; nothing is served.", _check)
     q.add_argument("paths", nargs="+", type=Path)
     q.add_argument("--hash", action="store_true", help="also print the content hash")
@@ -78,6 +100,8 @@ def _environ(args: argparse.Namespace) -> None:
         os.environ["SLIDETWIN_MANIFEST"] = str(args.manifest)
     if args.slides is not None:
         os.environ["SLIDETWIN_SLIDE_DIR"] = str(args.slides)
+    if getattr(args, "log_dir", None) is not None:
+        os.environ["SLIDETWIN_LOG_DIR"] = str(args.log_dir)
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -125,8 +149,10 @@ def _manifest(args: argparse.Namespace) -> int:
     text = manifest_yaml(data, refused)
     if args.output is None:
         sys.stdout.write(text)
-    else:
-        args.output.write_text(text, encoding="utf-8")
+    else:  # written whole, then renamed: a failed run never truncates an earlier manifest
+        part = args.output.with_name(args.output.name + ".part")
+        part.write_text(text, encoding="ascii")
+        os.replace(part, args.output)
     print(f"{len(data['slides'])} slides, {len(refused)} not served", file=sys.stderr)
     return 0
 

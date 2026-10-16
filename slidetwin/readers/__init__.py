@@ -62,7 +62,7 @@ def route(path: Path, name: str = "slide") -> FormatMatch:
     """The slide's format and reader: the router's, or for a file it has no reader for, the
     first reader plugin's that claims it."""
     match = sniff(path, name)
-    if match.reader is not None:
+    if match.reader in READERS:  # a built-in reader serves it (a name it lacks does not count)
         return match
     from slidetwin.readers import plugins
 

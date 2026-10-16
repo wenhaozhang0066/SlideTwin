@@ -13,9 +13,12 @@ in a public issue. Say what you found, how to reproduce it and what it allows.
   checked and sizes bounded before a library parses them, and the libraries that crash on damaged
   files (slideio, libisyntax) run in worker processes: a bad file fails one read, not the server.
 - Leaks of ground truth or file names. Labels and annotations never reach a session; errors and
-  logs name slide ids, not files; label and macro images are never read.
+  logs name slide ids, not files or download URLs; label and macro images are never read; the
+  server keeps no access log, whose paths would hold session ids. The packaged manifests do
+  carry the demo's and the evaluation's labels: an agent that can read files can read them.
 - Requests from other sites. The server answers only allowed host names and browser origins
-  (DNS rebinding), bounds request bodies, and in the Docker image limits requests per client.
+  (DNS rebinding), bounds request bodies, and in the Docker image limits requests per client
+  address (per X-Forwarded-For entry only where a proxy sets it and the operator says so).
 
 ## What it does not do
 

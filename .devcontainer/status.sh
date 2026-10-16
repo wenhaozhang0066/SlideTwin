@@ -13,8 +13,10 @@ if [[ -f logs/server.pid ]]; then
 fi
 echo "== slides"
 cat data/slides/.fetched 2>/dev/null && echo "(download complete for this manifest)" || echo "download not complete"
-find data/slides -name '*.part' -o -type f -name '*.tif*' -o -type f -name '*.svs' 2>/dev/null | head -n 20 |
-  while read -r f; do printf '%8s MB  %s\n' "$(($(stat -c %s "$f") / 1000000))" "$f"; done
+# Counts only: a slide's file name can carry its diagnosis (tumor_091.tif).
+files=$(find data/slides -type f \( -name '*.tif*' -o -name '*.svs' \) 2>/dev/null | wc -l)
+parts=$(find data/slides -name '*.part' 2>/dev/null | wc -l)
+echo "$files slide files, $parts unfinished downloads, $(du -sm data/slides 2>/dev/null | cut -f1) MB"
 echo "== logs/server.log (last 15 lines)"
 tail -n 15 logs/server.log 2>/dev/null
 echo "== logs/fetch.log (last 5 lines)"

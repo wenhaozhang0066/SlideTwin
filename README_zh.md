@@ -48,7 +48,7 @@ slidetwin replay logs/sessions/<id>.jsonl           # 回放一次阅片并报�
 slidetwin fetch --demo                              # 只下载
 ```
 
-`serve` 默认监听 127.0.0.1:7860（`--host 0.0.0.0` 监听所有网卡）。本地 agent（例如 Claude Code）：`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest manifest.yaml`。阅片日志写在 `./logs`（`SLIDETWIN_LOG_DIR`）。规则档、协议和 demo 清单随包安装；`SLIDETWIN_CONFIG_DIR` 或工作目录下的 `configs/` 会替换它们。
+`serve` 默认监听 127.0.0.1:7860（`--host 0.0.0.0` 监听所有网卡）。本地 agent（例如 Claude Code）：`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest /path/to/manifest.yaml --log-dir /path/to/logs`（请用绝对路径：agent 可能在任何目录下启动它）。阅片日志默认写在 `./logs`，可用 `--log-dir` 或 `SLIDETWIN_LOG_DIR` 改。规则档、协议和 demo 清单随包安装；`SLIDETWIN_CONFIG_DIR` 或工作目录下的 `configs/` 会替换它们。
 
 ## 开发
 

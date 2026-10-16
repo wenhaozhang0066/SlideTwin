@@ -114,6 +114,40 @@ def test_fetch_tries_again_after_network_and_server_errors(
     assert len(calls) == 8 + fetch_slides.ATTEMPTS  # a server error: every attempt, then give up
 
 
+def test_fetch_logs_no_url_or_path_and_never_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(fetch_slides, "RETRY_PAUSE_S", 0.0)
+    calls: list[str] = []
+
+    def secret_404(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.scheme == "ftp":  # what the real transport says
+            raise httpx.UnsupportedProtocol("Request URL has an unsupported protocol 'ftp://'.")
+        return httpx.Response(404)
+
+    raw = {"id": "s1", "path": "PATIENT-x/slide.tif", "sha256": SHA}
+    secret = parse_manifest(
+        {"slides": [{**raw, "source_url": "https://user:pw@x.test/a.tif?sig=SECRET"}]}
+    )[0]
+    stale = tmp_path / "PATIENT-x" / ".slide.tif.part"
+    stale.parent.mkdir()
+    stale.write_bytes(b"left by a killed download")
+    http = httpx.Client(transport=httpx.MockTransport(secret_404))
+    assert not fetch_slides.fetch_one(secret, tmp_path, http)
+    err = capsys.readouterr().err
+    assert "s1: failed (HTTPStatusError, HTTP 404)" in err
+    for word in ("SECRET", "pw", "PATIENT", "x.test"):
+        assert word not in err
+    assert not stale.exists()  # removed before downloading again
+    for url, tries in (("ftp://x.test/a.tif", 1), ("https://[::1/a.tif", 0)):  # never again
+        bad = parse_manifest({"slides": [{**raw, "source_url": url}]})[0]
+        calls.clear()
+        assert not fetch_slides.fetch_one(bad, tmp_path, http)
+        assert len(calls) == tries
+    assert capsys.readouterr().err.count("failed (") == 2
+
+
 def test_fetch_never_raises_on_a_read_only_folder(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -154,6 +188,7 @@ def test_entry_point_fetches_then_serves(
     assert "could not be fetched" in capsys.readouterr().err
     assert runs[0]["app"] == "slidetwin.api.main:app"
     assert (runs[0]["port"], runs[0]["workers"], runs[0]["proxy_headers"]) == (9000, 1, True)
+    assert runs[0]["access_log"] is False  # paths hold session ids
     assert runs[0]["forwarded_allow_ips"] == "*"
     serve.main({})
     assert len(fetched) == 1  # not asked to fetch
@@ -164,7 +199,7 @@ def test_entry_point_fetches_then_serves(
     monkeypatch.setattr(serve.fetch_slides, "main", broken)
     serve.main({"SLIDETWIN_FETCH_SLIDES": "1"})
     assert len(runs) == 3  # the server still starts
-    assert "manifest unreadable" in capsys.readouterr().err
+    assert "Fetching slides failed (ValueError)." in capsys.readouterr().err  # never its text
     assert (runs[1]["host"], runs[1]["port"]) == ("0.0.0.0", 7860)
 
 

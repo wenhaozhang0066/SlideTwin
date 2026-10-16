@@ -182,7 +182,7 @@ class SlideRegistry:
     ) -> SlideRegistry:
         try:
             data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as err:
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as err:
             raise ConfigError(
                 f"Cannot read slide manifest {manifest_path.name}: {type(err).__name__}."
             ) from None

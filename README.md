@@ -67,8 +67,10 @@ slidetwin fetch --demo                              # download only
 
 `serve` listens on 127.0.0.1:7860 (`--host 0.0.0.0` for every interface); open
 http://localhost:7860/ to read a slide in the browser. For a local agent, e.g. Claude Code:
-`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest manifest.yaml`.
-Readings are logged under `./logs` (`SLIDETWIN_LOG_DIR`). The profiles, the protocol and the demo
+`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest
+/path/to/manifest.yaml --log-dir /path/to/logs` (absolute paths: the agent may start it in any
+folder). Readings are logged under `./logs` unless `--log-dir` or `SLIDETWIN_LOG_DIR` says
+otherwise. The profiles, the protocol and the demo
 manifest come with the package; `SLIDETWIN_CONFIG_DIR` or a `configs/` folder in the working
 directory replace them.
 
@@ -247,11 +249,14 @@ holds the five slides of the evaluation in [docs/EVALUATION.md](docs/EVALUATION.
 
 The image reads every format but VSI and ZVI (slideio is left out, see
 [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)); it carries the licence notices of everything it
-installs and OpenSlide's source under `/usr/share/slidetwin/`. It limits each client to 20
-requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
-Hugging Face Space, also set `SLIDETWIN_ALLOWED_HOSTS` to the Space's host name. Sessions live
-in memory, so a restart ends them: download the trajectory at the end. If the download does not
-start inside the Hugging Face page, open the Space in its own tab.
+installs and the source of OpenSlide and openslide-python under `/usr/share/slidetwin/`. It
+limits each client address to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
+Hugging Face Space, set as Space variables `SLIDETWIN_ALLOWED_HOSTS` (the Space's host name),
+and, since the Space's proxy names the client in X-Forwarded-For,
+`SLIDETWIN_RATE_LIMIT_CLIENT_HEADER=x-forwarded-for` and `FORWARDED_ALLOW_IPS=*`; without a proxy,
+leave those two unset, or any client could choose its own rate limit. Sessions live in memory, so
+a restart ends them: download the trajectory at the end. If the download does not start inside
+the Hugging Face page, open the Space in its own tab.
 
 ### GitHub Codespaces
 

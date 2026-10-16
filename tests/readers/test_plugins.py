@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from slidetwin.core import formats
-from slidetwin.core.errors import SlideMetadataError
+from slidetwin.core.errors import SlideMetadataError, SlideReadError
 from slidetwin.core.formats import BUILT_IN_FORMATS, FormatMatch
 from slidetwin.core.registry import SlideEntry, SlideRegistry
 from slidetwin.core.slide_source import ArraySlideSource, source_provenance
@@ -35,7 +35,9 @@ class EntryPoint:
 
     @property
     def dist(self) -> Any:
-        return None if self.version is None else SimpleNamespace(version=self.version)
+        if self.version is None:
+            return None
+        return SimpleNamespace(version=self.version, metadata={"Name": f"slidetwin-{self.name}"})
 
 
 def plugin(claim: Any, formats: tuple[str, ...] = ("acme-slide",), opener: Any = None) -> Any:
@@ -71,6 +73,8 @@ def test_a_plugin_reads_a_file_the_router_does_not_know(
     assert source.level_dimensions == ((512, 384), (256, 192))  # the plugin's own source
     prov = source_provenance(source)
     assert (prov["reader"], prov["versions"]["plugin:acme"]) == ("plugin:acme", "1.2.3")
+    assert (prov["format"], prov["plugin_distribution"]) == ("acme-slide", "slidetwin-acme")
+    assert source.backend == "plugin:acme 1.2.3"  # SlideTwin's names, not the plugin's
     registry.close()
 
 
@@ -142,13 +146,21 @@ def test_open_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def refuses(*a: Any, name: str, **kw: Any) -> Any:
         raise SlideMetadataError(f"Slide '{name}' is a z-stack.")
 
-    install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=damaged)))
-    with pytest.raises(SlideMetadataError, match="with the acme plugin backend") as err:
-        open_source(path, match, name="s1")
-    assert "secret" not in err.value.message
-    install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=refuses)))
-    with pytest.raises(SlideMetadataError, match="is a z-stack"):
-        open_source(path, match, name="s1")
+    def exits(*a: Any, **kw: Any) -> Any:
+        raise SystemExit(3)
+
+    for opener, kind in (
+        (damaged, "ValueError"),
+        (refuses, "SlideMetadataError"),
+        (exits, "SystemExit"),
+    ):
+        install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=opener)))
+        with pytest.raises(
+            SlideMetadataError, match=f"by the acme reader plugin \\({kind}\\)"
+        ) as err:
+            open_source(path, match, name="s1")
+        assert "secret" not in err.value.message
+        assert "z-stack" not in err.value.message  # a plugin's own text may name files
     install(monkeypatch)
     with pytest.raises(SlideMetadataError, match="plugin 'acme', which is not installed"):
         open_source(path, match, name="s1")
@@ -168,3 +180,82 @@ def test_every_router_format_is_a_built_in_name() -> None:
     named = set(re.findall(r'FormatMatch\("([a-z0-9-]+)"', text))
     named |= set(formats.NO_READER) | set(formats._VENDOR_MAGIC.values())
     assert named <= BUILT_IN_FORMATS
+
+
+def test_two_plugins_with_one_name_are_not_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(
+        monkeypatch,
+        EntryPoint("acme", plugin(lambda p: None)),  # declines
+        EntryPoint("acme", plugin("acme-slide"), version="2.0"),  # would claim
+    )
+    path = write(tmp_path, b"ACME")
+    assert route(path).reader is None
+    with pytest.raises(SlideMetadataError, match="or installed twice"):
+        open_source(path, FormatMatch("acme-slide", "plugin:acme"), name="s1")
+
+
+def test_a_plugin_that_exits_while_sniffing_claims_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def exits(path: Path) -> str:
+        raise SystemExit(3)
+
+    install(monkeypatch, EntryPoint("a", plugin(exits)), EntryPoint("b", plugin("acme-slide")))
+    assert route(write(tmp_path, b"ACME")).reader == "plugin:b"
+
+
+def test_names_plugins_may_use(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install(monkeypatch, EntryPoint("kfb", plugin("kfbio-kfb", ("kfbio-kfb",))))
+    assert route(write(tmp_path, b"KFB?")).format == "kfbio-kfb"  # known by name, no reader
+    zarr = tmp_path / "image.zarr"
+    (zarr / "0").mkdir(parents=True)
+    (zarr / ".zattrs").write_text('{"multiscales": []}')
+    (zarr / ".zgroup").write_text('{"zarr_format": 2}')
+    assert formats.sniff(zarr).format == "ome-zarr"  # a reader name SlideTwin does not have
+    install(monkeypatch, EntryPoint("zarr", plugin("ome-zarr", ("ome-zarr",))))
+    assert route(zarr) == FormatMatch("ome-zarr", "plugin:zarr")
+    assert "aperio-svs" in plugins.RESERVED
+    assert "kfbio-kfb" not in plugins.RESERVED
+
+
+def test_read_errors_name_the_slide_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Broken(ArraySlideSource):
+        def read_level(self, level: int, x: int, y: int, w: int, h: int) -> Any:
+            raise OSError("/secret/path/slide.acme")
+
+    def opener(path: Path, match: FormatMatch, **kw: Any) -> Any:
+        return Broken([np.zeros((64, 64, 3), np.uint8)], (0.5, 0.5), name=kw["name"])
+
+    install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=opener)))
+    source = open_source(
+        write(tmp_path, b"ACME"), FormatMatch("acme-slide", "plugin:acme"), name="s1"
+    )
+    with pytest.raises(SlideReadError, match="by the acme reader plugin \\(OSError\\)") as err:
+        source.read_level(0, 0, 0, 8, 8)
+    assert "secret" not in err.value.message
+
+
+def test_ctrl_c_is_never_swallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def interrupted(*a: Any, **kw: Any) -> Any:
+        raise KeyboardInterrupt
+
+    class Reads(ArraySlideSource):
+        def read_level(self, level: int, x: int, y: int, w: int, h: int) -> Any:
+            raise KeyboardInterrupt
+
+    def opener(path: Path, match: FormatMatch, **kw: Any) -> Any:
+        return Reads([np.zeros((64, 64, 3), np.uint8)], (0.5, 0.5), name=kw["name"])
+
+    path = write(tmp_path, b"ACME")
+    match = FormatMatch("acme-slide", "plugin:acme")
+    install(monkeypatch, EntryPoint("acme", plugin(interrupted)))
+    with pytest.raises(KeyboardInterrupt):
+        route(path)
+    install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=interrupted)))
+    with pytest.raises(KeyboardInterrupt):
+        open_source(path, match, name="s1")
+    install(monkeypatch, EntryPoint("acme", plugin("acme-slide", opener=opener)))
+    with pytest.raises(KeyboardInterrupt):
+        open_source(path, match, name="s1").read_level(0, 0, 0, 8, 8)

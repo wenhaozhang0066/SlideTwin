@@ -30,6 +30,12 @@ if run python -c "import slideio" 2>/dev/null; then
   exit 1
 fi
 run sh -c 'test -s /usr/share/slidetwin/sources/openslide-bin-*.tar.gz'
+run sh -c 'test -s /usr/share/slidetwin/sources/openslide_python-*.tar.gz'
+run grep -q '^CRC32C (BSD-3-Clause)' /usr/share/slidetwin/THIRD_PARTY_NOTICES.txt
+if run sh -c 'find /app -name __pycache__ | grep -q .'; then  # .dockerignore keeps them out
+  echo "compiled files of the build context reached the image" >&2
+  exit 1
+fi
 run grep -q '^openslide-bin ' /usr/share/slidetwin/THIRD_PARTY_NOTICES.txt
 run grep -q '^libisyntax (BSD-2-Clause)' /usr/share/slidetwin/THIRD_PARTY_NOTICES.txt
 echo "docker smoke test passed"

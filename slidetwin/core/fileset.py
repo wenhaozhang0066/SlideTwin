@@ -20,9 +20,10 @@ FILESET_VERSION = "slidetwin-fileset-v1"
 
 
 def check_relative(paths: Iterable[str], slide_id: str = "slide") -> tuple[str, ...]:
-    """The set's relative POSIX paths, sorted; refuses absolute paths, '..', backslashes and an
-    empty set. The error counts the bad names but never shows them: they can carry labels."""
-    out = sorted(set(paths), key=lambda p: p.encode("utf-8"))
+    """The set's relative POSIX paths, sorted; refuses absolute paths, '..', backslashes, names
+    that are not UTF-8 (kept as surrogate escapes when read from a folder) and an empty set. The
+    error counts the bad names but never shows them: they can carry labels."""
+    out = sorted(set(paths), key=lambda p: p.encode("utf-8", "surrogateescape"))
     bad = sum(
         1
         for rel in out
@@ -30,11 +31,12 @@ def check_relative(paths: Iterable[str], slide_id: str = "slide") -> tuple[str, 
         or PurePosixPath(rel).is_absolute()
         or ".." in PurePosixPath(rel).parts
         or "\\" in rel
+        or any("\udc80" <= c <= "\udcff" for c in rel)
     )
     if bad:
         raise SlideMetadataError(
             f"Slide '{slide_id}' names {bad} file(s) SlideTwin will not open (an absolute path, "
-            "'..' or a backslash).",
+            "'..', a backslash or a name that is not UTF-8).",
             hint="Rename the slide's files with plain names inside its folder.",
         )
     if not out:

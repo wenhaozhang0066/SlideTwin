@@ -23,7 +23,7 @@ def main(environ: Mapping[str, str] | None = None) -> None:
         try:
             ok = fetch_slides.main([]) == 0
         except Exception as err:  # e.g. an unreadable manifest: still serve the UI and the API
-            print(f"Fetching slides failed ({type(err).__name__}: {err}).", file=sys.stderr)
+            print(f"Fetching slides failed ({type(err).__name__}).", file=sys.stderr)
             ok = False
         if not ok:
             print("Some slides could not be fetched; opening them will fail.", file=sys.stderr)
@@ -32,6 +32,7 @@ def main(environ: Mapping[str, str] | None = None) -> None:
         host=env.get("HOST", "0.0.0.0"),
         port=int(env.get("PORT", "7860")),
         workers=1,  # sessions live in this process
+        access_log=False,  # request paths hold session ids, which act as keys to the sessions
         proxy_headers=True,
         forwarded_allow_ips=env.get("FORWARDED_ALLOW_IPS", "127.0.0.1"),
     )

@@ -10,7 +10,8 @@ import argparse
 import importlib.metadata
 from pathlib import Path
 
-WORDS = ("licen", "copying", "notice")  # file names that hold licence texts
+WORDS = ("licen", "copying", "notice", "patent", "copyright")  # names of licence texts
+FOLDERS = {"licenses", "license", "licences"}  # every file in these is a licence text
 RULE = "=" * 80
 
 
@@ -33,7 +34,9 @@ def notices(third_party: Path) -> str:
             f"\n{RULE}\n{name} {dist.version} ({licence or 'see the files below'})\n{RULE}\n"
         )
         for file in sorted(dist.files or [], key=str):
-            if not any(w in file.name.lower() for w in WORDS) or file.suffix in (".py", ".pyc"):
+            in_folder = any(part.lower() in FOLDERS for part in file.parts[:-1])
+            named = any(w in file.name.lower() for w in WORDS)
+            if not (in_folder or named) or file.suffix in (".py", ".pyc", ".so"):
                 continue
             try:
                 text = file.read_text(encoding="utf-8")

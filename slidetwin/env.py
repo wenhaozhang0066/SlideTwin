@@ -17,7 +17,7 @@ before the session (INVALID_REQUEST) is not logged, one the session refuses is.
 
 The environment computes no reward: ground truth never enters a step. Training code scores a
 reading itself, for example from the receipt that an accepted report returns, or with
-slidetwin.eval against the annotations. Without `log_dir` nothing is written to disk; with it,
+slidetwin.eval against the annotations. Nothing is written to disk unless asked: with `log_dir`,
 every episode writes the trajectory a web session would, and it can be replayed.
 
 VecEnv runs n environments in worker processes. They are spawned, so a script that makes a VecEnv
@@ -120,9 +120,10 @@ class Env:
     """One session at a time on the slides of a manifest.
 
     Paths default as for the server (SLIDETWIN_CONFIG_DIR, SLIDETWIN_MANIFEST,
-    SLIDETWIN_SLIDE_DIR, SLIDETWIN_CACHE_DIR), except that nothing is logged unless `log_dir` is
-    given. `image` is "array" (the rendered pixels, no JPEG) or "jpeg" (the JPEG that REST and
-    MCP serve, for training on exactly what an agent sees there).
+    SLIDETWIN_SLIDE_DIR), except that nothing is written to disk unless asked: logs with `log_dir`,
+    the slide hash cache with `cache_dir` or SLIDETWIN_CACHE_DIR. `image` is "array" (the rendered
+    pixels, no JPEG) or "jpeg" (the JPEG that REST and MCP serve, for training on exactly what an
+    agent sees there).
     """
 
     def __init__(
@@ -145,7 +146,7 @@ class Env:
         configs = Path(config_dir) if config_dir else default_config_dir()
         manifest = manifest or env.get("SLIDETWIN_MANIFEST") or configs / "slides" / "manifest.yaml"
         slide_dir = slide_dir or env.get("SLIDETWIN_SLIDE_DIR") or "data/slides"
-        cache = cache_dir if cache_dir is not None else env.get("SLIDETWIN_CACHE_DIR", "cache")
+        cache = cache_dir if cache_dir is not None else env.get("SLIDETWIN_CACHE_DIR")
         registry = SlideRegistry.from_manifest(
             Path(manifest), Path(slide_dir), cache_dir=Path(cache) if cache else None
         )

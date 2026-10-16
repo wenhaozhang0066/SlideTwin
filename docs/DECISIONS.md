@@ -955,6 +955,58 @@ findings and their fixes:
   answer is reported at once: trying again would repeat it, or wait another 120 s. Worker errors
   now read "the worker stopped"; an open error names the backend.
 
+
+### Review of M9 (2026-10-16)
+
+Three adversarial reviews (the training interface; the command line, the package and plugins;
+safety and release readiness). The confirmed findings and their fixes:
+
+- **VecEnv never gets out of step.** Every message is pickled before any is sent. A call that does
+  not finish (interrupted, a worker stopped or timed out) breaks the VecEnv, and later calls
+  raise instead of reading stale answers. `timeout_s` kills a worker that does not answer. An
+  action that is not a dict goes to the worker, whose Env refuses it.
+- **Env agrees with REST at the edges.** Responses go through the REST response models (receipts
+  gain `claim_id: null`). Bodies over 1 MB are PAYLOAD_TOO_LARGE and bodies that are not JSON are
+  INVALID_REQUEST, before the session. NumPy integers work for `seed`, `viewport` and `n`. Env
+  keeps no served JPEG (it held 67 MB after 600 steps), its arrays are read-only as VecEnv's
+  are, and it writes nothing to disk unless asked (no hash cache by default).
+- **Manifests cannot be injected.** `slidetwin manifest` writes plain ASCII, with the file names
+  in its comments escaped, so no name can end a comment (U+2028, U+0085, ESC); the text must load
+  back as the data, and it is written to a temporary file, then renamed.
+  - One slide's failure (unreadable, an odd name, a reader's bug) refuses that slide only.
+    Unreadable folders and links to folders are noted; DICOM series without the .dcm suffix are
+    found; an id grows when two hashes share their first 10 hex digits.
+  - A file set with a name that is not UTF-8 is refused, in the server too (it was an HTTP 500).
+- **Plugins.** Two plugins with one name are not used. A plugin's errors (any exception, a
+  `SystemExit` too) reach clients as the slide id and the exception type. SlideTwin, not the
+  plugin, names the format, the backend and the plugin's distribution in the provenance. A format
+  the router names but has no reader for (OME-Zarr) goes to the plugins, and the names of
+  formats SlideTwin does not read (`kfbio-kfb`) are free.
+- **Command line.** Paths given as options are made absolute; `serve` and `mcp` take
+  `--log-dir`; a configuration error exits with 2 and a message, without a traceback.
+- **Downloads.** The log names the slide id, the error type and an HTTP status, never the URL
+  (it may hold credentials) or a path. A malformed or unsupported URL is not tried again, and the
+  partial file of a killed download is removed.
+- **Package.** The wheel maps `configs/` with hatch `sources`, which keeps the .gitignore rules
+  (`force-include` copied ignored files).
+- **Image.**
+  - openslide-python is pinned and its sdist is in the image, since it holds compiled LGPL code;
+    the CRC32C notice is added; every file of a package's licence folder is in the notices.
+  - `.dockerignore` keeps the build context's compiled files, which hold local paths, out.
+  - The image no longer trusts X-Forwarded-For by default: behind a proxy, a Space sets it as a
+    variable. The server keeps no access log, whose paths hold session ids; the codespace status
+    shows slide counts, not file names (a name can carry the diagnosis).
+- **Repository check** (`scripts/check_repo.py`): every blob of every ref, as bytes; authors,
+  committers and messages; e-mail addresses other than GitHub's noreply; more path, key and data
+  patterns; size in the history. A test plants each kind in a scratch repository.
+- **Demo licence notice.** CC BY-NC-ND 4.0 with its link, and the source's link.
+- **Open, for the owner.**
+  - Before publishing an image: the notices of the Rust crates in pydantic-core, rpds-py and
+    cryptography, and libquadmath's source ([THIRD_PARTY.md](THIRD_PARTY.md)).
+  - The history commit c8fe919 holds an internal path and is on GitHub: a rewrite with a force
+    push would leave it reachable by its SHA, so publish from a new repository, or ask GitHub to
+    purge it.
+
 ## M10: a small demo (2026-10-16)
 
 - **Owner's decisions.** The 5.3 GB demo was too big. No upload of visitors' own slides. M10 comes
@@ -973,7 +1025,7 @@ findings and their fixes:
   slides, so docs/EVALUATION.md and its trajectories replay unchanged. This replaces the five
   slides of "Publication" for the Space.
 
-## M9: pip package and training interface (in progress, 2026-10-16)
+## M9: pip package and training interface (2026-10-16)
 
 Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisions).
 
@@ -1034,4 +1086,3 @@ Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisi
     slide, the readers it holds and leaves out, the source archive and the notices.
 - **Codespace** installs every reader extra.
 - **Licence table**: [THIRD_PARTY.md](THIRD_PARTY.md).
-

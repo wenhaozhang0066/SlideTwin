@@ -387,5 +387,6 @@ digits of the file's sha256). The loader refuses an entry whose id, license or a
 `eval_only` value. File paths and source URLs stay on the server; errors name the slide id only.
 
 Limitation: a public slide can still be identified from its pixel dimensions or file hash, which the
-session and its log reveal. Experiments that need blind readers should run agents without internet
-access or use non-public slides.
+session and its log reveal, and the manifests in the repository and the package hold the demo's and
+the evaluation's `eval_only` labels. Experiments that need blind readers should run agents without
+internet or file access, or use non-public slides with labels kept elsewhere.

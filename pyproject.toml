@@ -68,10 +68,10 @@ dev = [
 path = "slidetwin/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["slidetwin"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"configs" = "slidetwin/configs"  # profiles, protocols and public manifests travel with the code
+# The profiles, protocols and public manifests travel with the code, as slidetwin/configs. Unlike
+# force-include, this mapping keeps the .gitignore rules: an ignored file in configs/ stays out.
+only-include = ["slidetwin", "configs"]
+sources = { "configs" = "slidetwin/configs" }
 
 [tool.hatch.build.targets.sdist]
 include = [

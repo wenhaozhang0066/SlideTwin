@@ -35,13 +35,20 @@ def _say(text: str) -> None:
 
 def fetch_one(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
     """True when the slide is in place with the pinned hash (or no pin) afterwards. Any failure,
-    a read-only folder included, is reported and leaves no partial file; it never raises. A
-    network error or a server error (5xx) is tried again after a growing pause."""
+    a read-only folder or a malformed URL included, is reported and leaves no partial file; it
+    never raises. A network error or a server error (5xx) is tried again after a growing pause.
+    The log names the slide id, the error type and an HTTP status, never the URL (it may carry
+    credentials) or a file path."""
     for attempt in range(1, ATTEMPTS + 1):
         try:
             return _fetch(entry, slide_dir, client)
-        except (httpx.HTTPError, OSError) as err:
-            _say(f"{entry.id}: failed ({type(err).__name__}: {err})")
+        except Exception as err:
+            status = (
+                f", HTTP {err.response.status_code}"
+                if isinstance(err, httpx.HTTPStatusError)
+                else ""
+            )
+            _say(f"{entry.id}: failed ({type(err).__name__}{status})")
             if attempt == ATTEMPTS or not _passing(err):
                 return False
             time.sleep(RETRY_PAUSE_S * attempt)
@@ -49,10 +56,11 @@ def fetch_one(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
 
 
 def _passing(err: Exception) -> bool:
-    """Whether trying again may help: a network error or a server error, not a 4xx or a disk."""
+    """Whether trying again may help: a network error or a server error, not a 4xx, a URL that
+    cannot work or a disk."""
     if isinstance(err, httpx.HTTPStatusError):
         return err.response.status_code >= 500
-    return isinstance(err, httpx.TransportError)
+    return isinstance(err, httpx.TransportError) and not isinstance(err, httpx.UnsupportedProtocol)
 
 
 def _fetch(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
@@ -65,6 +73,7 @@ def _fetch(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(f".{target.name}.part")
+    partial.unlink(missing_ok=True)  # left by a download that was killed
     digest = hashlib.sha256()
     done = 0
     started = time.monotonic()

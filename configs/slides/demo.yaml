@@ -18,13 +18,13 @@ slides:
     path: camelyon16/normal_108.tif
     source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/normal_108.tif
     sha256: f606e8ef726a42840a2e0d33d3ffcd1afe9ea52ff98ef0880502958c2a07fe3c
-    license: see docs/DATA_LICENSES.md (CAMELYON16)
-    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    license: CC BY-NC-ND 4.0 (https://creativecommons.org/licenses/by-nc-nd/4.0/), the stricter of the terms published for CAMELYON16
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017), https://camelyon16.grand-challenge.org
     eval_only: {label: normal, category: negative}
   - id: c16_29f5ca
     path: camelyon16/tumor_091.tif
     source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_091.tif
     sha256: 29f5ca4caf206a2197a134fd61fd79032cf9f8364495aba5840a842a6967d4a4
-    license: see docs/DATA_LICENSES.md (CAMELYON16)
-    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017)
+    license: CC BY-NC-ND 4.0 (https://creativecommons.org/licenses/by-nc-nd/4.0/), the stricter of the terms published for CAMELYON16
+    attribution: CAMELYON16 challenge (Ehteshami Bejnordi et al., JAMA 2017), https://camelyon16.grand-challenge.org
     eval_only: {label: tumor, category: micro, annotation: CAMELYON16/annotations/tumor_091.xml}
