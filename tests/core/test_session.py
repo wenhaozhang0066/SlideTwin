@@ -24,6 +24,7 @@ from slidetwin.core.errors import (
     SessionClosed,
     SlideMetadataError,
 )
+from slidetwin.core.images import MemoryImageStore, pixel_sha256
 from slidetwin.core.session import MeasurementRecord, Session, ThumbnailRecord, ViewRecord
 from slidetwin.core.trajectory import parse_trajectory
 from tests.conftest import SessionFactory
@@ -70,6 +71,23 @@ def test_actor_must_be_pseudonymous_and_typed(make_session: SessionFactory, acto
 def test_viewport_validation(make_session: SessionFactory, vp: Any) -> None:
     with pytest.raises(InvalidParameter):
         make_session(viewport_px=vp)
+
+
+def test_array_sessions_serve_pixels_and_store_nothing(make_session: SessionFactory) -> None:
+    with pytest.raises(ValueError, match="view_format"):
+        make_session(view_format="png")
+    images = MemoryImageStore()
+    s = make_session(view_format="array", images=images)
+    first, thumb = s.initial, s.get_thumbnail()
+    for result in (first, thumb):
+        assert result.image is None
+        assert result.array is not None
+        assert result.observation is not None
+        assert result.observation.to_dict()["jpeg_sha256"] is None
+        assert result.observation.to_dict()["pixel_sha256"] == pixel_sha256(result.array)
+    assert s.get_state().array is None
+    with pytest.raises(ImageNotFound):
+        images.get("v_0001")  # nothing was stored
 
 
 def test_default_viewport_comes_from_profile(make_session: SessionFactory, viewer: Profile) -> None:

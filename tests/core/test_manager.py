@@ -40,6 +40,14 @@ def test_create_get_and_memory_storage(registry: SlideRegistry, configs: ConfigS
     assert m.trajectory(s.session_id).startswith('{"type":"header"')
 
 
+def test_end_one_session(registry: SlideRegistry, configs: ConfigStore) -> None:
+    m = make(registry, configs)
+    s = m.create(slide_id="syn", actor="agent:x", viewport_px=(256, 192), view_format="array")
+    m.end(s.session_id)
+    assert (len(m), s.terminated) == (0, True)
+    m.end(s.session_id)  # an unknown or ended session: nothing to do
+
+
 def test_unknown_profile_or_protocol_is_a_client_error(
     registry: SlideRegistry, configs: ConfigStore
 ) -> None:

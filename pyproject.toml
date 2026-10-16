@@ -99,6 +99,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["slidetwin/core", "slidetwin/readers"]
+source_pkgs = ["slidetwin.env"]
 
 [tool.coverage.report]
 show_missing = true

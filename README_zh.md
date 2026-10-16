@@ -88,6 +88,27 @@ python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_s
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install -e ".[llm]" 和 ANTHROPIC_API_KEY
 ```
 
+## 训练接口
+
+训练时用 `slidetwin.env` 在你自己的进程里运行会话：不走 HTTP，不经 JPEG 编解码，规则、代价和日志与 REST、MCP 完全相同。动作是一个 dict：动作名加上它的 REST 请求体；每一步返回 RGB 数组形式的视野。
+
+```python
+from slidetwin.env import Env, VecEnv
+
+with Env("configs/slides/manifest.yaml", "data/slides") as env:
+    step = env.reset("c16_fa751c")  # 首个视野，以及切片、任务和规则
+    step = env.step({"action": "set_magnification", "mag": 10})
+    step.image, step.cost_s, step.elapsed_s, step.done
+    step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
+    step.error  # 被拒绝的动作，格式与 REST 相同
+
+with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
+    steps = vec.reset(["c16_fa751c"] * 8)  # 每个环境一个工作进程
+    steps = vec.step([{"action": "view"}] * 8)
+```
+
+环境不给奖励：标准答案从不进入任何一步，由训练代码自己给阅片打分（例如用 `slidetwin.eval`）。不设 `log_dir` 就不写日志；设了之后每个 episode 都写出与网页会话相同、可回放的轨迹。`image="jpeg"` 返回 REST 和 MCP 提供的 JPEG。`scripts/bench_env.py` 测速度：在一张 CAMELYON16 切片上，单个环境每秒 32 个动作，8 个工作进程每秒 182 个（共享的 64 核节点）。
+
 ## 评测与部署
 
 - 评测工具在 `slidetwin/eval`，只在评测中读取 CAMELYON 标注；demo 评测报告见 [docs/EVALUATION.md](docs/EVALUATION.md)。

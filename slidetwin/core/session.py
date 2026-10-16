@@ -80,6 +80,9 @@ VIEWPORT_MIN, VIEWPORT_MAX = 64, 4096
 CLIENT_META_MAX_BYTES = 4096
 RAW_PARAMS_MAX_BYTES = 16384
 AFTER_CLOSE = frozenset({"get_state", "export_trajectory"})
+# How a session serves pixels: "jpeg" (REST, MCP, web UI) encodes and stores each view; "array"
+# (the training interface) returns the rendered RGB array, with no JPEG and nothing stored.
+VIEW_FORMATS = ("jpeg", "array")
 LABEL_MAX, NOTE_MAX, POLYGON_MAX = 64, 1000, 1000
 VIEW_ACTIONS = frozenset({"create_session", "view", "crop"})
 MOVE_ACTIONS = frozenset({"set_magnification", "pan", "move_to"})
@@ -99,7 +102,7 @@ class ViewRecord:
     bbox_um: BBox
     size_px: Size
     pixel_sha256: str
-    jpeg_sha256: str
+    jpeg_sha256: str | None  # None when the session serves arrays
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -123,7 +126,7 @@ class ThumbnailRecord:
     size_px: Size
     um_per_px: Point
     pixel_sha256: str
-    jpeg_sha256: str
+    jpeg_sha256: str | None  # None when the session serves arrays
     tissue_pieces: tuple[dict[str, Any], ...] = ()  # pieces a negative claim can cite
 
     def to_dict(self) -> dict[str, Any]:
@@ -214,7 +217,8 @@ class ReportReceipt:
 
 
 Observation = ViewRecord | ThumbnailRecord | MeasurementRecord | AnnotationRecord | ReportReceipt
-Apply = Callable[[int], tuple[Observation | None, bytes | None]]
+# An observation and the served pixels: JPEG bytes, or the RGB array when the session serves arrays.
+Apply = Callable[[int], tuple[Observation | None, bytes | RGB | None]]
 
 
 @dataclass(frozen=True)
@@ -225,7 +229,7 @@ class _Plan:
     rule_violations: tuple[dict[str, Any], ...] = ()
 
 
-def _nothing(seq: int) -> tuple[Observation | None, bytes | None]:
+def _nothing(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
     return None, None
 
 
@@ -238,6 +242,7 @@ class ActionResult:
     state: dict[str, Any]
     observation: Observation | None = None
     image: bytes | None = None  # JPEG of a served view, crop or thumbnail
+    array: RGB | None = None  # its RGB pixels instead, when the session serves arrays
     text: str | None = None  # export_trajectory only
     rule_violations: tuple[dict[str, Any], ...] = ()
 
@@ -381,7 +386,11 @@ class Session:
         log_path: Path | None = None,
         wall_ms: Callable[[], int] | None = None,
         now_utc: Callable[[], datetime] = _utc_now,
+        view_format: str = "jpeg",
     ) -> None:
+        if view_format not in VIEW_FORMATS:
+            raise ValueError(f"view_format must be one of {VIEW_FORMATS}")
+        self.view_format = view_format
         self.actor = check_actor(actor)
         self.viewport_px: Size = check_viewport(viewport_px, profile.viewport_default_px)
         self.session_id = session_id
@@ -577,16 +586,17 @@ class Session:
             whole = BBox(0.0, 0.0, self._slide_um[0], self._slide_um[1])
             arr = render_region(self._source, whole, size, fill_rgb=self.profile.image.fill_rgb)
             um_per_px = (self._slide_um[0] / size[0], self._slide_um[1] / size[1])
-            jpeg = self._encode(arr)
-            pixels, jpeg_hash = pixel_sha256(arr), sha256_bytes(jpeg)
+            served, jpeg_hash = self._served(arr)
+            pixels = pixel_sha256(arr)
             pieces = tuple(piece.to_dict() for piece in self._tissue().pieces)
 
-            def apply(seq: int) -> tuple[Observation | None, bytes | None]:
+            def apply(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
                 tid = self._next_id("t")
-                self._images.put(tid, jpeg)
+                if isinstance(served, bytes):
+                    self._images.put(tid, served)
                 rec = ThumbnailRecord(tid, seq, size, um_per_px, pixels, jpeg_hash, pieces)
                 self._thumbs[tid] = rec
-                return rec, jpeg
+                return rec, served
 
             return _Plan(self._ledger.cost_us("get_thumbnail"), {}, apply)
 
@@ -759,7 +769,7 @@ class Session:
             snapshot = self._snapshot()
             try:
                 self._ledger.charge(plan.cost_us)
-                observation, image = plan.apply(seq)
+                observation, served = plan.apply(seq)
                 self._writer.write(
                     self._event(
                         seq,
@@ -786,7 +796,8 @@ class Session:
                 elapsed_s=self._ledger.elapsed_s,
                 state=self._state(),
                 observation=observation,
-                image=image,
+                image=served if isinstance(served, bytes) else None,
+                array=None if served is None or isinstance(served, bytes) else served,
                 rule_violations=plan.rule_violations,
             )
 
@@ -986,7 +997,7 @@ class Session:
         pending = self._render(center, mag) if self.profile.auto_view else None
         view_apply = self._apply_view(pending) if pending is not None else None
 
-        def apply(seq: int) -> tuple[Observation | None, bytes | None]:
+        def apply(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
             self._center, self._mag = center, mag
             if view_apply is None:
                 self._current_view = None
@@ -1000,18 +1011,19 @@ class Session:
     ) -> Apply:
         """Encode and hash now (planning); assign the id, store and register on commit."""
         arr, bbox, mpp, mag, center = pending
-        jpeg = self._encode(arr)
-        pixels, jpeg_hash = pixel_sha256(arr), sha256_bytes(jpeg)
+        served, jpeg_hash = self._served(arr)
+        pixels = pixel_sha256(arr)
         size = (int(arr.shape[1]), int(arr.shape[0]))
 
-        def apply(seq: int) -> tuple[Observation | None, bytes | None]:
+        def apply(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
             vid = self._next_id("v")
-            self._images.put(vid, jpeg)
+            if isinstance(served, bytes):
+                self._images.put(vid, served)
             rec = ViewRecord(vid, kind, seq, center, mag, mpp, bbox, size, pixels, jpeg_hash)
             self._views[vid] = rec
             self._current_view = rec
             self._ledger.note_view()
-            return rec, jpeg
+            return rec, served
 
         return apply
 
@@ -1019,9 +1031,14 @@ class Session:
         pending = self._render(self._center, self._mag)
         return _Plan(self._ledger.cost_us("create_session"), params, self._apply_view(pending))
 
-    def _encode(self, arr: RGB) -> bytes:
+    def _served(self, arr: RGB) -> tuple[bytes | RGB, str | None]:
+        """What the session serves for rendered pixels, and the JPEG's hash: the JPEG, or the
+        array itself when the session serves arrays (then there is no JPEG)."""
+        if self.view_format == "array":
+            return arr, None
         enc = self.profile.image
-        return encode_jpeg(arr, quality=enc.quality, subsampling=enc.subsampling)
+        jpeg = encode_jpeg(arr, quality=enc.quality, subsampling=enc.subsampling)
+        return jpeg, sha256_bytes(jpeg)
 
     def _next_id(self, prefix: str) -> str:
         self._counters[prefix] += 1

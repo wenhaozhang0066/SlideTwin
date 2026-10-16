@@ -161,6 +161,34 @@ python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000
   --model Qwen/Qwen2.5-VL-7B-Instruct --env http://localhost:7860 --slide cmu1_small
 ```
 
+## Training interface
+
+For training, `slidetwin.env` runs sessions inside your own process: no HTTP and no JPEG round trip,
+with the same rules, costs and logs as REST and MCP. An action is a dict naming the action plus its
+REST request body; a step returns the view as an RGB array.
+
+```python
+from slidetwin.env import Env, VecEnv
+
+with Env("configs/slides/manifest.yaml", "data/slides") as env:
+    step = env.reset("c16_fa751c")  # the first view, slide, task and rules
+    step = env.step({"action": "set_magnification", "mag": 10})
+    step.image, step.cost_s, step.elapsed_s, step.done  # (1024, 1280, 3) uint8 array, ...
+    step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
+    step.error  # a rejected action, as REST reports it
+
+with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
+    steps = vec.reset(["c16_fa751c"] * 8)  # one worker process per environment
+    steps = vec.step([{"action": "view"}] * 8)
+```
+
+The environment gives no reward: ground truth never enters a step, and training code scores a
+reading itself (for example with `slidetwin.eval`). Nothing is logged unless `log_dir` is set;
+with it, each episode writes the trajectory a web session would. `image="jpeg"` returns the JPEG
+that REST and MCP serve instead of the array. `scripts/bench_env.py` measures the speed: on a
+CAMELYON16 slide, one environment ran 32 actions per second and eight workers 182 (a shared
+64-core node).
+
 ## Evaluation
 
 Offline tools in `slidetwin/eval` score readings against the CAMELYON annotations, which are used

@@ -972,3 +972,28 @@ findings and their fixes:
   (`SLIDETWIN_MANIFEST`; a codespace's terminals too). `manifest.yaml` keeps the five evaluation
   slides, so docs/EVALUATION.md and its trajectories replay unchanged. This replaces the five
   slides of "Publication" for the Space.
+
+## M9: pip package and training interface (in progress, 2026-10-16)
+
+Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisions).
+
+- **Training interface** (`slidetwin/env.py`). `Env` holds one session at a time and creates it
+  through the `SessionManager`, as REST and MCP do; `reset` ends the previous session. A step
+  returns what REST and MCP return for the action (without the image), the error of a rejected
+  action, the image, the state and `done` (a report was accepted). No reward: ground truth never
+  enters a step.
+  - Actions are checked by the REST request models: a body REST refuses is refused before the
+    session (`INVALID_REQUEST`, not logged); what the session refuses is logged. NumPy numbers
+    are accepted. A test reads one slide through REST and through `Env` and finds the same log,
+    apart from times, client metadata, session ids and JPEG hashes.
+  - Sessions serve RGB arrays (`view_format="array"`): no JPEG is encoded or stored, the log
+    records each view's pixel hash with `jpeg_sha256: null`, and replay (which compares pixels,
+    not JPEGs) works as before. `image="jpeg"` serves the JPEG that REST and MCP serve.
+  - `VecEnv`: one spawned worker process per environment, each with its own slide handles. Every
+    worker's answer is read before an error is raised, so the workers never get out of step; a
+    stopped worker makes later calls fail until a new `VecEnv` is made.
+  - Speed (`scripts/bench_env.py`, CAMELYON16 `c16_fa751c`, a fixed reading at 10x-40x, a shared
+    64-core node at load 40): one `Env` 32 actions per second (arrays) and 29 (JPEG); eight
+    workers 182. Rendering takes most of a step.
+  - `slidetwin/env.py` joins the 100% coverage gate.
+

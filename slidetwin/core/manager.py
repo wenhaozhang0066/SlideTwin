@@ -106,7 +106,10 @@ class SessionManager:
         profile: str = "viewer",
         protocol: str = "sln_metastasis",
         viewport_px: Sequence[int] | None = None,
+        view_format: str = "jpeg",
     ) -> Session:
+        """A new session. `view_format` "array" serves RGB arrays instead of stored JPEGs (the
+        training interface; REST and MCP always serve JPEGs)."""
         prof: Profile = self._lookup(self.configs.profile, profile)
         proto: Protocol = self._lookup(self.configs.protocol, protocol)
         check_actor(actor)
@@ -147,6 +150,7 @@ class SessionManager:
                 images=images,
                 viewport_px=viewport_px,
                 log_path=self._log_path(session_id),
+                view_format=view_format,
             )
         except BaseException:
             images.discard()
@@ -220,6 +224,13 @@ class SessionManager:
         with self._lock:
             ended = self._sweep_locked()
         self._dispose(ended)
+
+    def end(self, session_id: str) -> None:
+        """End one session now, as its expiry would: its log stays, its served images go."""
+        with self._lock:
+            entry = self._sessions.pop(session_id, None)
+        if entry is not None:
+            self._dispose([entry.session])
 
     def close_all(self) -> None:
         with self._lock:

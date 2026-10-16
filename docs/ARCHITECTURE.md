@@ -7,8 +7,8 @@ disagree, one of them is a bug. SPEC sections are cited as "SPEC n".
 ## Layers
 
 ```
-api/ (FastAPI)   mcp_server/ (M4)   web/ (M3)
-        \             |              /
+api/ (FastAPI)   mcp_server/ (M4)   web/ (M3)   env.py (M9, training)
+        \             |              /           /
          SessionManager (core/manager.py)      <- the only entry point for adapters
                  |
               Session (core/session.py)        <- state machine, one per reading session
@@ -303,6 +303,17 @@ FastAPI serves `index.html` at `/` and the files at `/static/`.
   the SDK's own check is off.
 - Actions through MCP are logged with `client = {"via": "mcp"}`. Otherwise the log is identical to
   the same actions through REST (a test compares them).
+
+## Training interface (M9)
+
+`slidetwin/env.py` runs sessions in the caller's process for training. `Env` creates one session
+at a time through the `SessionManager`; `reset` ends the previous one. Actions are dicts checked
+by the REST request models (`api/schemas.py`): a body REST would refuse is `INVALID_REQUEST` and is
+not logged, as a REST 422; the session logs everything else. Sessions made with
+`view_format="array"` render without encoding: the step carries the RGB array, nothing is stored,
+and the log records the pixel hash with `jpeg_sha256: null`. A test compares a reading through
+`Env` with the same reading through REST: the logs match apart from times, client metadata,
+session ids and JPEG hashes. `VecEnv` runs one `Env` per spawned worker process.
 
 ## Agents (M4)
 
