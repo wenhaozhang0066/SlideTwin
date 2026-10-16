@@ -329,6 +329,10 @@ Nothing that serves a session imports this package (a test checks it).
 - Session slots: when all are taken, a session idle for `SLIDETWIN_SESSION_EVICT_IDLE_S` (15 min)
   gives its slot to the new one.
 - `POST /api/sessions/{id}/feedback`: optional pilot feedback, stored next to the session log.
+- `.devcontainer/`: a GitHub Codespace installs the package into `.venv` (`setup.sh`) and
+  downloads the slides in the background (`fetch.sh`). On every start and attach, `start.sh`
+  starts the server detached unless it is already up, allows the codespace's forwarded host name
+  and resumes an unfinished download.
 
 ## Ground truth isolation
 

@@ -25,7 +25,7 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M3 | 网页阅片界面（键盘与鼠标均可操作，中英文） | 完成 |
 | M4 | `/mcp` 上的 MCP 工具；蛇形、随机、裁剪与 LLM agent | 完成 |
 | M6 | 病灶指标、轨迹图、规则档对比、评测报告 | 完成 |
-| M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；Space 尚未发布 |
+| M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；demo 在 GitHub Codespaces 运行 |
 
 ## 快速开始
 
@@ -62,6 +62,17 @@ python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   
 - 评测工具在 `slidetwin/eval`，只在评测中读取 CAMELYON 标注；demo 评测报告见 [docs/EVALUATION.md](docs/EVALUATION.md)。
 - Docker：`docker run -p 7860:7860 slidetwin` 启动时下载公开 demo 切片（5.3 GB，校验 sha256）；读取自己的切片时挂载切片目录和 manifest，并设置 `SLIDETWIN_FETCH_SLIDES=0`。
 - 会话保存在内存中，服务重启会结束会话，请在结束时下载轨迹。
+- GitHub Codespaces（`.devcontainer/`）：
+  1. 可选，在创建之前：到 **Settings > Codespaces** 调大 **Default idle timeout**（默认 30 分钟，最长 240 分钟）。这个设置只对之后新建的 codespace 生效。
+  2. 在仓库页面选 **Code > Codespaces > Create codespace on main**。首次创建会安装依赖并下载 demo 切片，需要几分钟。之后每次启动都会自动运行服务（端口 7860），终端随后显示服务日志。
+  3. 终端打印 `SlideTwin is running: https://<name>-7860.app.github.dev` 后打开这个地址。默认只有你自己能打开。如果同时提示切片仍在下载，每张切片下载完成后即可打开（几分钟）。
+  4. 要分享给别人，在 **Ports** 面板右键 7860，选 **Port Visibility > Public**。codespace 每次重启后端口都会变回私有，所以每次演示前都要重新设置。
+
+  访客第一次打开时会看到 GitHub 的提示页（说明这是别人 codespace 的端口），点 **Continue** 即可进入。MCP 客户端用 `https://<name>-7860.app.github.dev/mcp`。codespace 停止后，这个地址只返回空白页。
+
+  访客的访问不算活动：从你最后一次操作起，超过闲置时间 codespace 就会停止，最长连续运行 12 小时。在 github.com/codespaces 重新启动后，服务地址不变，切片不用重新下载；新建的 codespace 地址会变。服务日志在 `logs/server.log`。
+
+  codespace 占用账号的每月额度：GitHub Free 120 核时（默认 2 核机器约 60 小时），Pro 180 核时。只要它存在，还会占用约 8 GB 存储额度（Free 每月 15 GB-month）。关闭浏览器标签页并不会停止它：演示结束后请停止 codespace，长期不用时删除。GitHub 的条款允许把 codespace 用于开发和测试（比如短期演示），不允许当作长期公开服务。
 - 病理专家试点见 [docs/PILOT.md](docs/PILOT.md)；代价参数可用 `python scripts/calibrate_costs.py` 从人类日志拟合。
 
 ## 文档

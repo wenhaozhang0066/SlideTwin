@@ -42,7 +42,7 @@ polygon and the report receipt](docs/media/reading.gif)
 | M3 | Web reading UI (keyboard and pointer, English and Chinese) | done |
 | M4 | MCP tools at `/mcp`; serpentine, random, crop and LLM agents | done |
 | M6 | Lesion metrics, trajectory pictures, profile comparison, evaluation report | done |
-| M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; Space not yet published |
+| M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; demo in GitHub Codespaces |
 
 ## Quick start
 
@@ -154,6 +154,42 @@ The image limits each client to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PE
 Hugging Face Space, also set `SLIDETWIN_ALLOWED_HOSTS` to the Space's host name. Sessions live
 in memory, so a restart ends them: download the trajectory at the end. If the download does not
 start inside the Hugging Face page, open the Space in its own tab.
+
+### GitHub Codespaces
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/wenhaozhang0066/SlideTwin)
+
+The dev container in `.devcontainer/` runs the demo in a codespace. When the codespace is
+created, it installs SlideTwin and downloads the demo slides. Each time the codespace starts, it
+starts the server on port 7860; the terminal then shows the server log.
+
+1. Optional, before creating the codespace: under **Settings > Codespaces**, raise
+   **Default idle timeout** (30 minutes; at most 240). The setting applies only to codespaces
+   created afterwards.
+2. On the repository page, choose **Code > Codespaces > Create codespace on main**. The first
+   start takes a few minutes.
+3. Wait for the terminal to print `SlideTwin is running: https://<name>-7860.app.github.dev`, then
+   open that address. At first only you can open it. If it also says that the slides are still
+   downloading, each slide opens once its download is complete (a few minutes).
+4. To share it, open the **Ports** panel, right-click port 7860 and choose
+   **Port Visibility > Public**. Anyone with the address can then use the demo. The port turns
+   private again whenever the codespace restarts, so repeat this before each demo.
+
+On their first visit, visitors see a GitHub page warning that they are opening a port of
+someone's codespace; **Continue** leads to the demo. MCP clients use
+`https://<name>-7860.app.github.dev/mcp`. When the codespace is stopped, the address returns an
+empty page.
+
+Visitors' requests do not count as activity: the codespace stops when the idle timeout has passed
+since your own last input, and after 12 hours at most. Starting it again (github.com/codespaces)
+starts the server at the same address, and the slides are not downloaded again. A new codespace
+gets a new address. The server log is `logs/server.log`.
+
+A codespace counts against your account's monthly quota: 120 core hours on GitHub Free (60
+hours of the default 2-core machine) and 180 on Pro. It also uses about 8 GB of the storage quota
+(15 GB-month on Free) for as long as it exists. Closing the browser tab does not stop it; stop
+it after a demo, and delete it when it is no longer needed. GitHub's terms allow a codespace for
+developing and testing, such as a short demo, not as a permanent public service.
 
 For a pathologist pilot, see [docs/PILOT.md](docs/PILOT.md). The cost model can be fitted from
 human logs with `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml`.

@@ -719,3 +719,42 @@ automatically.
   owner accepted that judgement. Attribution is shown with each slide, and the images are served
   unmodified apart from the viewer's resampling.
 
+## Codespaces demo (2026-10-16)
+
+- **Why.** The Hugging Face Space cannot start. The account's `cpu-basic` quota is 0, a limit that
+  several new free accounts report for their first Space; verifying the e-mail address did not lift
+  it. The owner chose a GitHub Codespace for the demo instead. It is free within the account's
+  monthly core hours, and the 5.3 GB of slides fit the default 32 GB disk.
+- **Set-up** (`.devcontainer/`, the official Python 3.12 dev container image).
+  - `setup.sh` (`updateContentCommand`, before the editor connects) installs the package into
+    `.venv`, so the server can start as soon as the editor attaches.
+  - `fetch.sh` (`postCreateCommand`, in the background) downloads the slides and stamps
+    `data/slides/.fetched` with the manifest's sha256. A failed download is reported, never
+    fatal: a failing step would skip the steps after it.
+  - `start.sh` (`postStartCommand` and `postAttachCommand`) starts the server unless
+    `/api/health` already answers, with a lock against a start and an attach racing. It resumes
+    the download when the stamp is missing or stale, since a stopped codespace never repeats
+    `postCreateCommand`. On attach it then follows the server log in the terminal.
+  - Lifecycle commands run under a terminal that closes when they return. A background job
+    started with `setsid nohup ... &` was killed by that hangup in 3 of 3 local trials, so the
+    server is forked with `setsid -f` (survived 3 of 3), with all streams redirected.
+  - Tested in the same image under Apptainer and under a pseudo-terminal: install in 10-15 s;
+    the server survives the step; a second start keeps it. A real codespace was not available.
+- **Behind the forwarding relay** (Microsoft dev tunnels; GitHub does not document it, so this
+  comes from community reports and the dev-tunnels documentation).
+  - Host is usually rewritten to `localhost:7860`, and the Origin of the page's own requests to
+    `http(s)://localhost:7860`; some reports see the forwarded name instead. `start.sh` allows the
+    localhost forms and the codespace's own forwarded name
+    (`CODESPACE_NAME`, `GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN`). Other origins still get 403.
+  - Every visitor arrives from one relay address, so the 20 requests per second limit is a cap for
+    all visitors together. The relay also limits each port (about 1500 requests per minute).
+- **Sharing is the owner's act.** A forwarded port is private (only the owner can open it). The
+  owner makes port 7860 public in the Ports panel before a demo; it turns private again whenever
+  the codespace restarts. Publishing automatically (`gh codespace ports visibility`) was not
+  added: it would expose the server without the owner's explicit choice each time.
+- **A demo link is temporary.** Visitors' requests do not reset the idle timer, and a codespace
+  runs for 12 hours at most (GitHub docs, October 2026), so the link works only while the owner
+  keeps the codespace running. Each stop ends the server; `postStartCommand` starts it again at
+  the same address. The default 2-core machine is kept (no `hostRequirements`): a larger machine
+  would halve the free hours. GitHub's terms allow this for development and testing, such as a
+  short demo, not as a permanent public service.
