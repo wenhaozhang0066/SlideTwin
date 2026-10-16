@@ -13,7 +13,7 @@ import importlib.metadata
 import itertools
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 import numpy as np
 import tifffile
@@ -78,10 +78,9 @@ class TiffPagesSource(BaseSource):
         self._tif.close()
 
 
-SourceT = TypeVar("SourceT", bound=TiffPagesSource)
-
-
-def open_with(path: Path, name: str, build: Callable[[Any], SourceT]) -> SourceT:
+def open_with[SourceT: TiffPagesSource](
+    path: Path, name: str, build: Callable[[Any], SourceT]
+) -> SourceT:
     """Open the file and build its source from it; the file is closed again if that fails.
     Unexpected errors name the exception type only."""
     try:
