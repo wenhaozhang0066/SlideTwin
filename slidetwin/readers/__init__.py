@@ -28,6 +28,7 @@ READERS: dict[str, tuple[str, str | None]] = {
     "argos": ("slidetwin.readers.argos", None),
     "ome": ("slidetwin.readers.ome", None),
     "qptiff": ("slidetwin.readers.qptiff", None),
+    "isyntax": ("slidetwin.readers.isyntax", "isyntax"),
 }
 
 
