@@ -71,12 +71,14 @@ VERSION = library_version()
 
 
 class WorkerError(Exception):
-    """A request failed. `reported` is true when the library raised (the worker is still fine);
-    otherwise the worker stopped, took too long or broke the protocol."""
+    """A request failed. `reported` is true when the library raised (the worker is still fine), and
+    `stopped` when the worker ended before it answered (it crashed or was killed); otherwise it
+    took too long or broke the protocol."""
 
-    def __init__(self, reason: str, *, reported: bool = False) -> None:
+    def __init__(self, reason: str, *, reported: bool = False, stopped: bool = False) -> None:
         super().__init__(reason)
         self.reported = reported
+        self.stopped = stopped
 
 
 STOPPED = "the slideio worker stopped"
@@ -156,6 +158,17 @@ class SlideioWorker:
             self._stop()
 
     def _start(self) -> list[SceneInfo]:
+        """A new worker and its scenes. A worker that stops before it answers is started once
+        more: such a stop can pass (a signal from outside, a shortage of memory), and the next
+        attempt then works (review r16). A second stop is reported."""
+        try:
+            return self._launch()
+        except WorkerError as err:
+            if not err.stopped:
+                raise
+        return self._launch()
+
+    def _launch(self) -> list[SceneInfo]:
         ours, theirs = socket.socketpair()
         try:
             process = subprocess.Popen(
@@ -174,7 +187,7 @@ class SlideioWorker:
             return scene_infos(receive(self._conn, TIMEOUT_S))
         except OSError:
             self._stop()
-            raise WorkerError(STOPPED) from None
+            raise WorkerError(STOPPED, stopped=True) from None
         except WorkerError:
             self._stop()
             raise
@@ -205,7 +218,7 @@ def request_block(conn: Connection, request: dict[str, Any], hw: tuple[int, int]
     try:
         send(conn, request)
     except OSError:
-        raise WorkerError(STOPPED) from None
+        raise WorkerError(STOPPED, stopped=True) from None
     dtype, shape = block_header(receive(conn, TIMEOUT_S), hw)
     size = math.prod(shape) * np.dtype(dtype).itemsize
     data = receive_bytes(conn, size, TIMEOUT_S)
@@ -237,7 +250,7 @@ def receive_bytes(conn: Connection, limit: int, timeout: float) -> bytes:
     try:
         return conn.recv_bytes(limit)
     except (EOFError, ConnectionError):  # it ended, also while a request was on its way
-        raise WorkerError(STOPPED) from None
+        raise WorkerError(STOPPED, stopped=True) from None
     except OSError:  # longer than the limit
         raise WorkerError(DAMAGED) from None
 

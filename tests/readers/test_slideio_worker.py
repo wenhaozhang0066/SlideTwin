@@ -115,6 +115,43 @@ def test_failed_opens(tmp_path: Path, behaviour: str, reason: str) -> None:
     assert "secret" not in str(e.value)  # library messages, which name files, stay in the worker
 
 
+def count_starts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """The pids of the workers started from now on."""
+    pids: list[int] = []
+    real = subprocess.Popen
+
+    def popen(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        process = real(*args, **kwargs)
+        pids.append(process.pid)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    return pids
+
+
+@pytest.mark.usefixtures("fake")
+def test_a_worker_that_stops_while_opening_is_started_once_more(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review r16: a worker that died while opening the slide (here it exits; in r16 it was killed
+    from outside) was reported as damage, though the next attempt worked. A worker that stops
+    before it answers is started once more; only a second stop is reported."""
+    starts = count_starts(monkeypatch)
+    marker = tmp_path / "crash"
+    marker.touch()
+    w = SlideioWorker(slide(tmp_path, open="crash-once", marker=str(marker)), "VSI", "s1")
+    assert len(starts) == 2
+    assert not marker.exists()  # the first worker stopped there
+    assert w.scenes == [INFO]
+    np.testing.assert_array_equal(w.read(0, 0, 1, 2, 3, 4), pixels(0, 0, 1, 2, 3, 4))
+    w.close()
+    for behaviour, tries in (("crash", 2), ("error", 1)):  # a library error is not tried again
+        starts.clear()
+        with pytest.raises(SlideMetadataError, match="could not be opened"):
+            SlideioWorker(slide(tmp_path, open=behaviour), "VSI", "s1")
+        assert len(starts) == tries
+
+
 @pytest.mark.usefixtures("fake")
 def test_an_open_that_hangs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(worker, "TIMEOUT_S", 3.0)
@@ -248,6 +285,7 @@ def test_damaged_messages(pipe: tuple[Connection, Connection], data: bytes) -> N
     with pytest.raises(WorkerError, match=DAMAGED) as err:
         receive(ours, 1.0)
     assert not err.value.reported
+    assert not err.value.stopped
 
 
 def test_reported_errors(pipe: tuple[Connection, Connection]) -> None:
@@ -264,8 +302,9 @@ def test_reported_errors(pipe: tuple[Connection, Connection]) -> None:
 
 def test_silent_stopped_and_oversized(pipe: tuple[Connection, Connection]) -> None:
     ours, theirs = pipe
-    with pytest.raises(WorkerError, match=r"took longer than 0\.1 s"):
+    with pytest.raises(WorkerError, match=r"took longer than 0\.1 s") as err:
         receive(ours, 0.1)
+    assert not err.value.stopped  # a worker that hangs is not started again at once
     # only the length header of an oversized message: sending the body would block once the
     # pipe's buffer is full (about 200 KB on CI runners), as nothing reads it
     os.write(theirs.fileno(), struct.pack("!i", worker.MESSAGE_MAX + 1))
@@ -274,14 +313,16 @@ def test_silent_stopped_and_oversized(pipe: tuple[Connection, Connection]) -> No
     theirs.close()
     other, end = Pipe()
     end.close()
-    with pytest.raises(WorkerError, match="stopped"):
+    with pytest.raises(WorkerError, match="stopped") as err:
         receive(other, 1.0)
+    assert err.value.stopped
     other.close()
     other, end = Pipe()
     send(other, {"op": "read"})
     end.close()  # it died with the request unread: the connection is reset
-    with pytest.raises(WorkerError, match="stopped"):
+    with pytest.raises(WorkerError, match="stopped") as err:
         receive(other, 1.0)
+    assert err.value.stopped
     other.close()
 
 
