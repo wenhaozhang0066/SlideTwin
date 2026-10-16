@@ -38,6 +38,7 @@ const S = {
   receipt: null,
   lastMove: 0, // time of the last action started by a key (held keys repeat)
   version: "",
+  catalogue: null, // slides with their source and licence, for the start screen
 };
 
 const MOVES = new Set(["magnification", "pan", "move_to"]);
@@ -50,6 +51,7 @@ function applyI18n() {
   for (const el of document.querySelectorAll("[data-i18n-label]")) {
     el.setAttribute("aria-label", t(el.dataset.i18nLabel));
   }
+  if (!S.sid && S.catalogue) showSlideSource();
   if (S.sid) {
     renderTools();
     renderReportForm();
@@ -777,12 +779,23 @@ async function loadCatalogue() {
     ]);
     S.schema = schema;
     S.version = `${health.version}+${health.git_sha}`;
+    S.catalogue = slides.slides;
     $("slide-select").replaceChildren(...slides.slides.map((s) => option(s.id, s.id)));
+    showSlideSource();
     $("profile-select").replaceChildren(...profiles.profiles.map((p) => option(p.id, `${p.id} — ${p.description}`)));
     $("protocol-select").replaceChildren(...protocols.protocols.map((p) => option(p.protocol_id, p.title)));
   } catch (err) {
     say(explain(err), true);
   }
+}
+
+/** Every slide is shown with its source and licence (DATA_LICENSES.md). */
+function showSlideSource() {
+  const slide = (S.catalogue || []).find((s) => s.id === $("slide-select").value);
+  const unknown = t("start.unknown");
+  $("slide-source").textContent = slide
+    ? t("start.source", { attribution: slide.attribution || unknown, license: slide.license || unknown })
+    : "";
 }
 
 async function start(ev) {
@@ -833,6 +846,7 @@ function init() {
     applyI18n();
   });
   $("start-form").addEventListener("submit", start);
+  $("slide-select").addEventListener("change", showSlideSource);
   const overlay = $("overlay-canvas");
   overlay.addEventListener("pointerdown", onPointerDown);
   overlay.addEventListener("pointermove", onPointerMove);

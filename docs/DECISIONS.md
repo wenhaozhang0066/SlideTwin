@@ -704,3 +704,16 @@ automatically.
     - Two tests did not test what they claimed (break exclusion, the import isolation check).
     - The image depended on the builder's umask.
   - The note: abandoned sessions could hold all slots for two hours; see "Session slots" above.
+
+## Publication (2026-10-16, owner's decisions)
+
+- **GitHub.** Private repository `wenhaozhang0066/SlideTwin`. Every commit is authored as the owner's
+  GitHub identity (`Wenhao Zhang`, the account's noreply address); the history is rewritten once
+  before the first push to set it and to remove an internal path from the first plan. No
+  co-author or tool attribution lines.
+- **Hugging Face Space.** `eric-1w/SlideTwin`, public, Docker SDK (set by the README header).
+- **Demo slides on the public Space.** The owner decided to serve the five CAMELYON16 demo slides
+  as well as the CC0 test slide. The CAMELYON16 licence statements conflict (DATA_LICENSES.md); the
+  owner accepted that judgement. Attribution is shown with each slide, and the images are served
+  unmodified apart from the viewer's resampling.
+

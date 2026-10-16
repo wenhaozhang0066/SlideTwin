@@ -14,6 +14,10 @@ label and macro images; SlideTwin never serves associated images.
 
 ## CAMELYON16 (demo slides)
 
+On 2026-10-16 the owner decided to serve these slides on the public Hugging Face Space
+(DECISIONS.md, "Publication"). The reading UI shows each slide's source and licence on the start
+screen.
+
 - Source: the CAMELYON16 challenge, also mirrored in the AWS Open Data bucket `s3://camelyon-dataset/`.
 - License statements differ between pages. The AWS registry and the CAMELYON17 data page say CC0, but the
   CAMELYON17 download page says CC BY-NC-ND 4.0.

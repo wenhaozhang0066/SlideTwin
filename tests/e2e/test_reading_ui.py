@@ -112,6 +112,7 @@ def test_full_reading_in_the_browser(
     # Start screen: the catalogue shows opaque ids only.
     expect(page.locator("#slide-select option")).to_have_count(1)
     assert page.locator("#slide-select").input_value() == "syn_tissue"
+    expect(page.locator("#slide-source")).to_have_text("Source: not stated. Licence: CC0-1.0.")
     page.fill("#alias", "e2e-reader")
     page.check("#timer-toggle")
     page.click("#start-button")

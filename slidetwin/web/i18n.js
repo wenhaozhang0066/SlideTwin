@@ -7,6 +7,8 @@ const STRINGS = {
     "start.intro":
       "Every action is logged in micrometres and seconds, and the log can be downloaded at the end. Use a pseudonym, not your name.",
     "start.slide": "Slide",
+    "start.source": "Source: {attribution}. Licence: {license}.",
+    "start.unknown": "not stated",
     "start.profile": "Rules",
     "start.protocol": "Protocol",
     "start.alias": "Pseudonym",
@@ -102,6 +104,8 @@ const STRINGS = {
     "start.intro":
       "每个操作都以微米和秒记录，结束时可以下载日志。请用化名，不要用真实姓名。",
     "start.slide": "切片",
+    "start.source": "来源：{attribution}。许可：{license}。",
+    "start.unknown": "未注明",
     "start.profile": "规则",
     "start.protocol": "协议",
     "start.alias": "化名",
