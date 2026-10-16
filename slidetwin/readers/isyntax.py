@@ -16,10 +16,15 @@ open; one cut in its codeblocks fails the reads that need the missing part. libi
 expose the seektable, so the file size is not checked against it in advance.
 
 An iSyntax file stores wavelet coefficients, not a pyramid. libisyntax rebuilds level n,
-floor(W / 2^n) x floor(H / 2^n) pixels, an exact 2^n reduction of level 0. It places level n >= 2
-one level pixel off (an origin offset of 4, 10, 22, ... level-0 pixels), so those levels are read
-at x - round(offset / 2^n), the rule of OpenSlide's iSyntax driver (PR #437) that the survey checked
-against Philips' own TIFF export. Unscanned areas decode white.
+floor(W / 2^n) x floor(H / 2^n) pixels, an exact 2^n reduction of level 0, but off level 0's grid:
+its pixel 0 starts 0.5 level-0 pixels in at level 1 and 2^(n-1) + 1.5 at level n >= 2 (3.5, 5.5,
+9.5, ...). These are the levels' transform offsets, and the renderer resamples at them. They were
+measured by matching each level with the 2^n box means of level 0: on four samples the median over
+12 tissue windows lay within 0.06 pixel of them at levels 1-3 and within 0.25 at levels 4-5.
+libisyntax reports other origin offsets (0, 1, 4, 10, 22, ...); the rule of OpenSlide's iSyntax
+driver (PR #437) built on them, reading level n >= 2 at x - round(offset / 2^n), put level 1 a
+quarter of a level pixel off and levels n >= 3 up to half a level pixel (review). A slide for which
+libisyntax reports other origin offsets is refused. Unscanned areas decode white.
 
 The label, the macro image and the barcode are stored in the XML header and are never read. Of the
 header only the interface version is read: iSyntax v2 (100.x) is refused. libisyntax reports a pixel
@@ -114,7 +119,7 @@ class ISyntaxSource(BaseSource):
         )
         info = worker.info
         try:
-            shifts = _check_pyramid(info, major, name)
+            offsets = _check_pyramid(info, major, name)
             raw = info.mpp
             trusted = raw if raw is not None and _plausible(raw) else (None, None)
             mpp = resolve_mpp(trusted[0], trusted[1], mpp_override, name)
@@ -122,27 +127,28 @@ class ISyntaxSource(BaseSource):
             worker.close()
             raise
         self._worker = worker
-        self._shifts = shifts
         source = "mpp_override" if mpp_override else "isyntax UFS_IMAGE_DIMENSION_SCALE_FACTOR"
         super().__init__(
             info.dims,
             mpp,
             f"pyisyntax {VERSION}",
             name,
-            transforms=[LevelTransform(2.0**k, 2.0**k) for k in info.scales],
+            transforms=[
+                LevelTransform(2.0**k, 2.0**k, o, o)
+                for k, o in zip(info.scales, offsets, strict=True)
+            ],
             provenance={
                 "format": "philips-isyntax",
                 "mpp_source": source,
                 "fill": list(FILL),
-                "level_shifts": shifts,
+                "level_offsets": offsets,  # level-0 px
                 "versions": {"pyisyntax": VERSION},
             },
         )
 
     def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
         self._check(level, x, y, w, h)
-        shift = self._shifts[level]
-        request = {"op": "read", "level": level, "rect": [x - shift, y - shift, w, h]}
+        request = {"op": "read", "level": level, "rect": [x, y, w, h]}
         rgba = self._worker.read_block(request, level, (h, w))
         if rgba.shape != (h, w, 4) or rgba.dtype != np.uint8:
             raise SlideReadError(
@@ -205,8 +211,8 @@ def opened(raw: Any) -> _Opened:
         raise WorkerError(DAMAGED) from None
 
 
-def _check_pyramid(opened: _Opened, major: int, name: str) -> list[int]:
-    """Exact 2^n levels of floor size; returns the level shifts (level pixels)."""
+def _check_pyramid(opened: _Opened, major: int, name: str) -> list[float]:
+    """Exact 2^n levels of floor size; returns where they start on level 0 (level-0 pixels)."""
     if opened.model != major:
         raise SlideMetadataError(
             f"Slide '{name}': libisyntax and the file header disagree on the iSyntax version.",
@@ -219,24 +225,23 @@ def _check_pyramid(opened: _Opened, major: int, name: str) -> list[int]:
         raise SlideMetadataError(
             f"Slide '{name}' has an iSyntax pyramid that is not a series of 2^n reductions.",
         )
-    shifts = level_shifts(opened.offsets)
-    if shifts is None:
+    offsets = level_offsets(opened.offsets)
+    if offsets is None:
         raise SlideMetadataError(
             f"Slide '{name}' has iSyntax level offsets that SlideTwin has not seen; it will not "
             "guess where the levels lie.",
             hint=_EXPORT,
         )
-    return shifts
+    return offsets
 
 
-def level_shifts(offsets: Sequence[float]) -> list[int] | None:
-    """round(offset / 2^n) per level, with Python's rounding: level 1's offset is half a pixel and
-    gives 0, as the survey found best. None unless level 0 is not offset and every shift is 0 or 1,
-    the cases the survey checked."""
-    if not offsets or offsets[0] != 0 or not all(math.isfinite(o) and o >= 0 for o in offsets):
+def level_offsets(origins: Sequence[float]) -> list[float] | None:
+    """Where libisyntax's levels start on level 0 (level-0 pixels): 0, 0.5, then 2^(n-1) + 1.5,
+    as measured. Only for the origin offsets that libisyntax reported on the measured samples,
+    0 then 3 * 2^(n-1) - 2; None for any others."""
+    if list(origins) != [0.0] + [3.0 * 2 ** (n - 1) - 2 for n in range(1, len(origins))]:
         return None
-    shifts = [round(offset / 2**n) for n, offset in enumerate(offsets)]
-    return shifts if set(shifts) <= {0, 1} else None
+    return [0.0, 0.5, *(2.0 ** (n - 1) + 1.5 for n in range(2, len(origins)))][: len(origins)]
 
 
 def _plausible(mpp: tuple[float, float]) -> bool:

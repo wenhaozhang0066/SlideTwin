@@ -1,4 +1,4 @@
-"""Philips iSyntax reader (M8): pyisyntax in a worker process per slide, the level offset rule, the
+"""Philips iSyntax reader (M8): pyisyntax in a worker process per slide, where the levels lie, the
 pixel size, the version gate and refusals. CI has no iSyntax sample, so a fake of the library layer
 (tests/helpers/fake_isyntax.py) stands in for pyisyntax in real worker processes; local runs also
 check real slides (data/testdata/isyntax/)."""
@@ -26,10 +26,11 @@ from slidetwin.core.formats import FormatMatch, sniff
 from slidetwin.core.geometry import LevelTransform
 from slidetwin.core.slide_source import ReaderOptions
 from slidetwin.readers import open_source
-from slidetwin.readers.isyntax import ISyntaxSource, interface_version, level_shifts, open_reader
+from slidetwin.readers.isyntax import ISyntaxSource, interface_version, level_offsets, open_reader
 from slidetwin.readers.worker import Worker
 from tests.conftest import TESTDATA_DIR
-from tests.helpers.fake_isyntax import BLOCK, CHUNK, header, pixels, write_slide
+from tests.helpers.fake_isyntax import BLOCK, CHUNK, header, levels_of, write_slide
+from tests.helpers.level_oracle import misplacement, tissue_windows
 
 MATCH = FormatMatch("philips-isyntax", "isyntax")
 FAKE = "tests.helpers.fake_isyntax"
@@ -96,31 +97,45 @@ def test_interface_version(tmp_path: Path) -> None:
         interface_version(tmp_path / "missing.isyntax", "s1")
 
 
-def test_level_shifts() -> None:
-    measured = [0, 1, 4, 10, 22, 46, 94, 190, 382]  # libisyntax, levels 0-8 (survey)
-    assert level_shifts(measured) == [0, 0, 1, 1, 1, 1, 1, 1, 1]
-    assert level_shifts([0, 0, 0]) == [0, 0, 0]  # a libisyntax that aligns its levels itself
-    for odd in ([], [1, 1], [0, float("nan")], [0, -1], [0, 1, 12]):
-        assert level_shifts(odd) is None
+def test_level_offsets() -> None:
+    reported = [0, 1, 4, 10, 22, 46, 94, 190, 382]  # by libisyntax, levels 0-8 (survey)
+    assert level_offsets(reported) == [0, 0.5, 3.5, 5.5, 9.5, 17.5, 33.5, 65.5, 129.5]
+    assert level_offsets([0]) == [0]
+    for odd in ([], [0, 0, 0], [1, 1], [0, float("nan")], [0, 1, 12], [0, 1, 4, 10, 23]):
+        assert level_offsets(odd) is None  # libisyntax would place these levels who knows where
 
 
 # --- the reader on the fake library, in worker processes ---------------------------------------
 
 
-def test_reads_undo_the_level_offset_in_the_worker(tmp_path: Path, fake: list[Worker[Any]]) -> None:
-    src = open_fake(tmp_path / "slide.isyntax")
+WINDOWS = ((1, 40, 30), (2, 20, 15), (3, 10, 8))  # (level, x, y) of 8 x 8 windows in the fake
+
+
+def test_levels_lie_where_libisyntax_puts_them(tmp_path: Path, fake: list[Worker[Any]]) -> None:
+    """The M8 review's oracle on the fake, whose levels lie where libisyntax's do: each window of a
+    level matches the 2^n box means of level 0 best where the transforms put it. The rule before
+    (read at x - round(origin / 2^n), no offset) put level 1 half a pixel and level 3 2.5 pixels
+    off."""
+    path = tmp_path / "slide.isyntax"
+    src = open_fake(path)
+    truth = levels_of(path)  # what libisyntax serves, at its own coordinates
     assert src.level_dimensions == ((320, 240), (160, 120), (80, 60), (40, 30))
-    assert src.level_transforms == tuple(LevelTransform(2.0**k, 2.0**k) for k in range(4))
+    assert src.level_transforms == (
+        LevelTransform(1.0, 1.0),
+        LevelTransform(2.0, 2.0, 0.5, 0.5),
+        LevelTransform(4.0, 4.0, 3.5, 3.5),
+        LevelTransform(8.0, 8.0, 5.5, 5.5),
+    )
     assert src.mpp == (0.25, 0.25)
-    for n, (w, h) in enumerate(src.level_dimensions):  # levels >= 2 are read one pixel early
-        np.testing.assert_array_equal(src.read_level(n, 0, 0, w, h), pixels(n, 0, 0, w, h))
-        np.testing.assert_array_equal(
-            src.read_level(n, 3, 2, w - 3, h - 2), pixels(n, 3, 2, w - 3, h - 2)
-        )
+    for n, (w, h) in enumerate(src.level_dimensions):  # read as libisyntax serves them
+        np.testing.assert_array_equal(src.read_level(n, 0, 0, w, h), truth[n])
+        np.testing.assert_array_equal(src.read_level(n, 3, 2, w - 3, h - 2), truth[n][2:, 3:])
+    for n, x, y in WINDOWS:
+        assert misplacement(src, n, x, y, 8) == (0.0, 0.0), n
     with ThreadPoolExecutor(4) as pool:  # the server's threads; the fake crashes on a second one
         blocks = list(pool.map(lambda k: src.read_level(0, k, k, 64, 64), range(16)))
     for k, block in enumerate(blocks):
-        np.testing.assert_array_equal(block, pixels(0, k, k, 64, 64))
+        np.testing.assert_array_equal(block, truth[0][k : k + 64, k : k + 64])
     worker = process(src)
     src.close()
     assert worker.returncode == 0  # it left on request
@@ -130,9 +145,19 @@ def test_reads_undo_the_level_offset_in_the_worker(tmp_path: Path, fake: list[Wo
         "format": "philips-isyntax",
         "mpp_source": "isyntax UFS_IMAGE_DIMENSION_SCALE_FACTOR",
         "fill": [255, 255, 255],
-        "level_shifts": [0, 0, 1, 1],
+        "level_offsets": [0.0, 0.5, 3.5, 5.5],
         "versions": {"pyisyntax": "0.1.7"},
     }
+
+
+@pytest.mark.usefixtures("fake")
+def test_the_oracle_sees_half_a_pixel(tmp_path: Path) -> None:
+    """The fake's levels half a pixel from where libisyntax puts them (where the review's
+    whole-pixel search placed them): the oracle finds it."""
+    src = open_fake(tmp_path / "slide.isyntax", placed=[0, 0, 3, 5])
+    for n, x, y in WINDOWS:
+        assert misplacement(src, n, x, y, 8) == (-0.5, -0.5), n
+    src.close()
 
 
 @pytest.mark.usefixtures("fake")
@@ -206,6 +231,7 @@ def test_a_crash_or_a_hang_fails_one_read_of_one_slide(
     slide has its own worker. A crash fails one read, and the next read starts a new worker; a
     hang is stopped after the timeout, and other slides are read meanwhile."""
     good = open_fake(tmp_path / "good.isyntax")
+    truth = levels_of(tmp_path / "good.isyntax")  # the same for each slide here
     marker = tmp_path / "crash"
     marker.touch()
     crashing = open_fake(tmp_path / "crash.isyntax", fail="crash-once", marker=str(marker))
@@ -213,9 +239,9 @@ def test_a_crash_or_a_hang_fails_one_read_of_one_slide(
     with pytest.raises(SlideReadError, match=r"at level 0 \(the worker stopped\)"):
         crashing.read_level(0, 0, 0, 16, 16)
     assert first.returncode == -signal.SIGSEGV
-    np.testing.assert_array_equal(crashing.read_level(0, 0, 0, 16, 16), pixels(0, 0, 0, 16, 16))
+    np.testing.assert_array_equal(crashing.read_level(0, 0, 0, 16, 16), truth[0][:16, :16])
     assert process(crashing).pid != first.pid
-    np.testing.assert_array_equal(good.read_level(0, 5, 5, 8, 8), pixels(0, 5, 5, 8, 8))
+    np.testing.assert_array_equal(good.read_level(0, 5, 5, 8, 8), truth[0][5:13, 5:13])
     crashing.close()
 
     monkeypatch.setattr(shared, "TIMEOUT_S", 3.0)
@@ -225,7 +251,7 @@ def test_a_crash_or_a_hang_fails_one_read_of_one_slide(
         stuck = pool.submit(hanging.read_level, 0, 0, 0, 8, 8)
         time.sleep(0.5)  # the read that hangs is under way
         start = time.perf_counter()
-        np.testing.assert_array_equal(good.read_level(1, 0, 0, 8, 8), pixels(1, 0, 0, 8, 8))
+        np.testing.assert_array_equal(good.read_level(1, 0, 0, 8, 8), truth[1][:8, :8])
         assert time.perf_counter() - start < 1.0  # the other slide did not wait for it
         assert not stuck.done()
         with pytest.raises(SlideReadError, match=r"\(the worker took longer than 3 s\)"):
@@ -335,8 +361,9 @@ def test_the_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "mpp": [0.5, 0.5],
     }
     assert handle.cache_size == reader.CACHE_TILES
-    rgba = reader.read(handle, {"level": 2, "rect": [-1, -1, 5, 4]})  # libisyntax's coordinates
-    np.testing.assert_array_equal(rgba[:, :, :3], pixels(2, 0, 0, 5, 4))
+    rgba = reader.read(handle, {"level": 2, "rect": [-1, 2, 5, 4]})  # libisyntax's coordinates
+    np.testing.assert_array_equal(rgba[:, 1:, :3], levels_of(path)[2][2:6, :4])
+    assert (rgba[:, 0] == 255).all()  # outside the level: white
     handle.close()
     write_slide(path, fail="open")
     with pytest.raises(RuntimeError):
@@ -371,28 +398,20 @@ def local_sample(name: str) -> Path:
     return path
 
 
-def box(a: np.ndarray, f: int) -> np.ndarray:
-    h, w = a.shape[0] // f, a.shape[1] // f
-    return a[: h * f, : w * f].reshape(h, f, w, f, 3).astype(np.float64).mean(axis=(1, 3))
-
-
 def mean_rgb(a: np.ndarray) -> list[float]:
     return a.reshape(-1, 3).mean(axis=0).tolist()  # type: ignore[no-any-return]
 
 
-def assert_levels_aligned(src: ISyntaxSource, x0: int, y0: int, levels: range) -> None:
-    """Level n against the 2^n box mean of level 0 around (x0, y0): no shift fits better."""
-    size, r = 128, 3
+def assert_levels_lie_where_the_transforms_say(src: ISyntaxSource, levels: range) -> None:
+    """The M8 review's oracle on tissue windows: levels 1-3 exactly where the transforms put them
+    (to the half pixel), level 4 within half a pixel and level 5 within one. Coarser levels are too
+    smooth to tell. The rule before put level 3 2.5 pixels off and level 5 14.5."""
     for n in levels:
-        f = 2**n
-        x, y = x0 // f - size // 2, y0 // f - size // 2
-        ref = box(src.read_level(0, x * f, y * f, size * f, size * f), f)
-        errors = {}
-        for dx in range(-r, r + 1):
-            for dy in range(-r, r + 1):
-                moved = src.read_level(n, x + dx, y + dy, size, size).astype(np.float64)
-                errors[dx, dy] = float(np.abs(moved - ref).mean())
-        assert min(errors, key=errors.__getitem__) == (0, 0), n
+        size = max(8, min(48, 3072 // 2**n))
+        found = [misplacement(src, n, x, y, size) for x, y in tissue_windows(src, n, size, 8)]
+        limit = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.5}.get(n, 1.0)
+        assert len(found) == 8, n
+        assert all(abs(dx) <= limit and abs(dy) <= limit for dx, dy in found), (n, found)
 
 
 REAL = {"library": "isyntax", "lowlevel": "isyntax._pyisyntax", "cache_tiles": 100}
@@ -427,14 +446,14 @@ def test_bioimage_archive_slide(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert [list(d) for d in src.level_dimensions] == report["dims"]
     assert src.mpp == (0.25, 0.25)
-    assert src.provenance["level_shifts"] == [0, 0, 1, 1, 1]
+    assert src.provenance["level_offsets"] == [0, 0.5, 3.5, 5.5, 9.5]
     # the survey's numbers: a tissue region and the glass in the corner, at level 0
     region = src.read_level(0, 5264, 5296, 512, 512)
     assert mean_rgb(region) == pytest.approx([203.31, 171.02, 203.23], abs=0.01)
     assert mean_rgb(src.read_level(0, 0, 0, 256, 256)) == pytest.approx(
         [226.91, 225.89, 228.74], abs=0.01
     )
-    assert_levels_aligned(src, 5520, 5552, range(1, 5))
+    assert_levels_lie_where_the_transforms_say(src, range(1, 5))
     names: set[str] = set()
 
     def read(k: int) -> None:
@@ -458,11 +477,11 @@ def test_openphi_test_slide() -> None:
     src = ISyntaxSource(local_sample("testslide.isyntax"), name="s1")
     assert src.level_dimensions[0] == (37382, 73222)
     assert src.level_dimensions[-1] == (292, 572)
-    assert src.provenance["level_shifts"] == [0, 0, 1, 1, 1, 1, 1, 1]
+    assert src.provenance["level_offsets"] == [0, 0.5, 3.5, 5.5, 9.5, 17.5, 33.5, 65.5]
     assert mean_rgb(src.read_level(0, 17920, 39168, 512, 512)) == pytest.approx(
         [170.77, 141.52, 131.8], abs=0.01
     )
-    assert_levels_aligned(src, 18176, 39424, range(1, 6))
+    assert_levels_lie_where_the_transforms_say(src, range(1, 6))
     src.close()
 
 
