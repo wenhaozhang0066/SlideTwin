@@ -787,4 +787,63 @@ Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
 - **File sets** (`core/fileset.py`): completeness checks and one canonical hash, ready for the
   multi-file readers.
 - **Python 3.12 or later** (decision 7), CI on 3.12 and 3.13. OpenSlide's floor is 4.0.1.1.
+- **Reader choices.** Manifest fields `scene`, `plane`, `channels`, `fileset_sha256` and
+  `experimental`. A reader refuses a choice its format has no use for; a file with several scenes
+  or focal planes must name one, so a negative claim can never cover only part of the glass
+  without saying so. Formats checked only on synthetic files need `experimental: true`.
+- **Test slides in tiers** (`scripts/fetch_test_data.py`). Tiers 1 and 2 (CC0, about 300 MB) run
+  in CI; tier 3 (large, or not CC0) runs locally. Other fixtures are generated in the tests.
+- **Scope** (owner, 2026-10-16: "document the supported formats; a few unsupported ones are
+  fine"). Brightfield formats first; fluorescence and multiplex images, plain images and formats
+  without an open reader are refused for now and listed in the README.
+
+### Reader families
+
+- **DICOM** (`readers/dicom.py`, wsidicom). A slide is one series: a folder, or one level file.
+  pydicom reads headers only (stopping before group 0029) so that only the VOLUME instances of one
+  series are opened and hashed; label, overview, thumbnail and DICOMDIR never are, and a folder
+  with several series is refused. Levels are exact 2^k reductions, checked against pixel spacing
+  and extents; sparse tiles are white.
+  - Codec gate: JPEG baseline and JPEG 2000 with YBR_FULL_422 are served (checked on Leica-4 and
+    JP2K-33003-1); JPEG XL, HTJ2K and other colour models checked only on synthetic series are
+    experimental; the rest is refused. The decoder is pinned (imagecodecs, pydicom for
+    uncompressed) and recorded in the provenance.
+  - Leica-4 is bit-identical to OpenSlide at a level-0 region and at the origins of levels 1-2.
+  - Patient fields of the headers never reach an error, a log or the provenance (a test plants
+    them).
+- **Zeiss CZI** (`readers/czi.py`, czifile). One slide per scene; a multi-scene file without
+  `scene` is refused (serving scene 0 silently would make a whole-slide negative claim false).
+  The compositor follows the survey: floor-sized 2^k levels, mosaic order (highest on top),
+  valid-pixel masks, white fill, 16-bit shifted by its bit count minus 8.
+  - Served: single-file Bgr24/Bgr48 with JPEG XR or zstd. Uncompressed is experimental.
+    Fluorescence, z-stacks, time series and multi-file CZI are refused. Attachments (label,
+    preview) are never read.
+  - The previews: zstd0, zstd1-HiLo and OpenSlide agree bit for bit; JPEG XR against zstd has a
+    mean difference of 0.5. Zeiss-5-JXR matches czifile's mosaic-order composite at level 0. A
+    1280 x 1024 view takes 166 ms cold and 85 ms warm.
+- **OpenSlide formats** (`readers/openslide.py`): NDPI, VMS/VMU, MRXS, Sakura SVSlide.
+  - OpenSlide must name the routed format before the slide opens.
+  - Only levels with an integer downsample are served, in their own pixel grid, so nothing is
+    resampled at sub-pixel offsets; the first inexact level and the coarser ones are dropped and
+    the renderer reduces a finer level instead.
+  - A failed read closes OpenSlide's latched handle; the next read reopens it after checking that
+    the pyramid is unchanged.
+  - File sets come from each format's own index (MRXS: Slidedat.ini, the index and data files;
+    VMS/VMU: every file the index names, the macro included but never decoded). Names with path
+    separators are refused and never echoed.
+  - Served: NDPI brightfield JPEG at focal plane 0, single-layer VMS, brightfield single-plane
+    MRXS. VMU and SVSlide are experimental. MRXS fluorescence is refused: OpenSlide converts its
+    packed channels as YCbCr and clips them.
+- **TIFF slides with their own layout** (`readers/tiffpages.py` and one module each):
+  - Leica SCN: the SCN XML lists the regions; the macro is never read; one region per scene;
+    several regions and z-stacks are experimental; fluorescence is refused.
+  - Trestle: overlapping camera tiles stitched as OpenSlide does (bit-identical on CMU-1); coarse
+    levels start half the overlap in, (X0 - 32) / 2^k on CMU-1.
+  - Ventana BIF: tiles stitched from the XMP joints, as Bio-Formats does (bit-identical on
+    Ventana-1 in the survey); only VENTANA DP 200 with one area, LEFT/UP joints and confirmed
+    joints; older iScan files are refused.
+  - ARGOS AVS: the 'Baseline' series, white fill, exact 2^k levels; a z-stack shows the plane the
+    manifest names, else its middle plane (as OpenSlide), with the plane order unverified.
+  - OME-TIFF with interleaved RGB and Akoya QPTIFF brightfield; multichannel, planar and
+    fluorescence images are refused.
 

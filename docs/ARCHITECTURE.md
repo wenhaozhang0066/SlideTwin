@@ -16,12 +16,30 @@ api/ (FastAPI)   mcp_server/ (M4)   web/ (M3)
   Ledger     render.py   ImageStore   TrajectoryWriter
  (costs)   (ViewerBackend)              (JSONL log)
                  |
-        SlideSource (tiffslide | openslide | array)
+        SlideSource (readers/: tifffile, openslide, wsidicom, czi, scn, ... | array)
+                 ^
+        formats.sniff -> readers.open_source  (registry, M8)
 ```
 
 `core` imports nothing from FastAPI, MCP or the web UI. Adapters call only `SessionManager` and the
 `Session` methods listed below. There is no tile endpoint and no way to read pixels outside a session
 action.
+
+## Slide readers (M8)
+
+- `core/formats.py` names the format from the file's content (magic bytes, then tifffile's vendor
+  flags for TIFF files, a few extensions for multi-file formats) and the one reader that serves it.
+  It never tries readers in turn: several open some formats but serve a preview or a label.
+- `readers/__init__.py` maps each reader to its module and pip extra. A reader module imports its
+  library at the top and provides `open_reader(path, match, *, name, mpp_override, options)`.
+  Formats without a validated reader, and missing libraries, are refused with what to do.
+- A source may give exact `level_transforms` (scale and offset of each level on level 0; the
+  default is D13's extent ratio), a `provenance` (reader, format, settings, library versions) that
+  the trajectory header records and replay checks, and a `fileset` (root and relative paths) for
+  slides made of several files. The registry checks a file set for completeness and hashes it
+  (`core/fileset.py`); a single file keeps its plain sha256.
+- `ReaderOptions` carries the manifest's `scene`, `plane`, `channels` and `experimental`; a reader
+  refuses a choice its format has no use for.
 
 ## Units and coordinates (SPEC 3)
 
