@@ -22,6 +22,12 @@ READERS: dict[str, tuple[str, str | None]] = {
     "openslide": ("slidetwin.readers.openslide", "openslide"),
     "wsidicom": ("slidetwin.readers.dicom", None),
     "czi": ("slidetwin.readers.czi", None),
+    "scn": ("slidetwin.readers.scn", None),
+    "trestle": ("slidetwin.readers.trestle", None),
+    "bif": ("slidetwin.readers.bif", None),
+    "argos": ("slidetwin.readers.argos", None),
+    "ome": ("slidetwin.readers.ome", None),
+    "qptiff": ("slidetwin.readers.qptiff", None),
 }
 
 
