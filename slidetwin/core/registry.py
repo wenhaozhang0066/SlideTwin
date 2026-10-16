@@ -16,7 +16,7 @@ import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -27,9 +27,10 @@ from slidetwin.core.errors import (
     SlideMetadataError,
     SlideNotFound,
 )
+from slidetwin.core.fileset import check_complete, fileset_sha256
 from slidetwin.core.formats import sniff
 from slidetwin.core.geometry import Point
-from slidetwin.core.slide_source import SlideSource, open_slide
+from slidetwin.core.slide_source import ReaderOptions, SlideSource, open_slide
 
 SLIDE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 _HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -55,6 +56,17 @@ class SlideEntry(BaseModel):
     # named backends keep the behaviour of earlier manifests.
     backend: Literal["auto", "tiffslide", "openslide"] = "auto"
     format: str | None = Field(None, pattern=r"^[a-z0-9-]{1,40}$")  # expected format, checked
+    # Reader choices (M8); a reader refuses a choice its format has no use for.
+    scene: int | None = Field(None, ge=0, le=999)  # one SlideTwin slide per scene or ROI
+    plane: int | None = Field(None, ge=0, le=999)  # focal plane of a z-stack
+    channels: tuple[Annotated[int, Field(ge=0, le=255)], ...] | None = Field(
+        None, min_length=1, max_length=16
+    )
+    fileset_sha256: str | None = Field(None, pattern=r"^[0-9a-f]{64}$")  # multi-file slides
+    experimental: bool = False  # serve formats validated only on synthetic samples
+
+    def options(self) -> ReaderOptions:
+        return ReaderOptions(self.scene, self.plane, self.channels, self.experimental)
 
     @field_validator("path")
     @classmethod
@@ -215,22 +227,43 @@ class SlideRegistry:
         override = (entry.mpp_override.x, entry.mpp_override.y) if entry.mpp_override else None
         if entry.backend == "auto":
             source = _open_auto(path, entry, override)
+        elif entry.options() != ReaderOptions() or entry.fileset_sha256 is not None:
+            raise ConfigError(
+                f"Slide '{entry.id}': scene, plane, channels, experimental and fileset_sha256 "
+                "need backend auto.",
+            )
         else:
             source = open_slide(path, backend=entry.backend, mpp_override=override, name=entry.id)
         try:
-            # A pinned hash is always verified on the file itself (once per process); the cache
-            # only spares unpinned slides from re-hashing.
-            digest = file_sha256(path) if entry.sha256 else self._cached_sha256(path)
+            digest = self._content_hash(entry, path, source)
         except OSError:
             source.close()
             raise SlideNotFound(f"The file for slide '{entry.id}' could not be read.") from None
-        if entry.sha256 is not None and digest != entry.sha256:
+        except Exception:
             source.close()
-            raise SlideIntegrityError(
-                f"Slide '{entry.id}' does not match the sha256 pinned in the manifest.",
-                hint="Re-download the file or update the manifest after checking the source.",
-            )
+            raise
         return RegisteredSlide(entry.id, source, digest)
+
+    def _content_hash(self, entry: SlideEntry, path: Path, source: SlideSource) -> str:
+        """The slide's content hash: the file's sha256, or the file-set hash when the reader
+        reads several files. A pinned hash is always verified on the files themselves (once per
+        process); the cache only spares unpinned slides from re-hashing."""
+        if entry.sha256 is not None and not path.is_file():
+            raise ConfigError(f"Slide '{entry.id}' is a folder: pin it with fileset_sha256.")
+        if entry.sha256 is not None and file_sha256(path) != entry.sha256:
+            raise _mismatch(entry.id, "sha256")
+        fileset = getattr(source, "fileset", None)
+        if fileset is None:
+            if entry.fileset_sha256 is not None:
+                raise ConfigError(f"Slide '{entry.id}' is a single file: use sha256.")
+            return entry.sha256 if entry.sha256 is not None else self._cached_sha256(path)
+        root, files = fileset
+        rels = check_complete(root, files, entry.id)
+        pinned = entry.fileset_sha256 is not None
+        digest = fileset_sha256(root, rels, file_sha256 if pinned else self._cached_sha256)
+        if pinned and digest != entry.fileset_sha256:
+            raise _mismatch(entry.id, "fileset_sha256")
+        return digest
 
     def _cached_sha256(self, path: Path) -> str:
         """File hash, cached on disk by (real path, size, mtime, inode). The cache is a hint only:
@@ -291,4 +324,11 @@ def _open_auto(path: Path, entry: SlideEntry, override: Point | None) -> SlideSo
             f"Slide '{entry.id}' is {match.format}, not {entry.format} as the manifest says.",
             hint="Correct the manifest's format field, or check that the right file is in place.",
         )
-    return open_source(path, match, name=entry.id, mpp_override=override)
+    return open_source(path, match, name=entry.id, mpp_override=override, options=entry.options())
+
+
+def _mismatch(slide_id: str, field: str) -> SlideIntegrityError:
+    return SlideIntegrityError(
+        f"Slide '{slide_id}' does not match the {field} pinned in the manifest.",
+        hint="Re-download the slide or update the manifest after checking the source.",
+    )

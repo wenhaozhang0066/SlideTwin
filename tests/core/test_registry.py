@@ -16,7 +16,9 @@ from slidetwin.core.errors import (
     SlideMetadataError,
     SlideNotFound,
 )
+from slidetwin.core.fileset import fileset_sha256
 from slidetwin.core.registry import SlideEntry, SlideRegistry, file_sha256, parse_manifest
+from slidetwin.core.slide_source import ArraySlideSource, ReaderOptions
 from tests.conftest import CONFIG_DIR
 from tests.helpers.synth import line_image, pyramid, write_pyramid_tiff
 
@@ -223,3 +225,80 @@ def test_refused_formats_explain_what_to_do(tmp_path: Path) -> None:
     assert "pyramidal TIFF" in (err.value.hint or "")
     with pytest.raises(SlideMetadataError, match="does not have yet"):
         reg.get("czi")
+
+
+def test_reader_choices_are_validated() -> None:
+    e = entry(scene=2, plane=0, channels=[0, 3], experimental=True)
+    assert e.options() == ReaderOptions(2, 0, (0, 3), True)
+    for bad in ({"scene": -1}, {"channels": []}, {"channels": [999]}, {"fileset_sha256": "x"}):
+        with pytest.raises(ConfigError):
+            parse_manifest({"slides": [{"id": "s", "path": "s.tif", **bad}]})
+
+
+def test_reader_choices_need_backend_auto(slide_dir: Path) -> None:
+    reg = SlideRegistry([entry(backend="tiffslide", scene=1)], slide_dir)
+    with pytest.raises(ConfigError, match="need backend auto"):
+        reg.get("syn")
+
+
+class _SetSource(ArraySlideSource):
+    """A source that reads several files, like an MRXS slide and its data folder."""
+
+    def __init__(self, root: Path, files: tuple[str, ...]) -> None:
+        super().__init__([np.zeros((8, 8, 3), np.uint8)], (0.5, 0.5))
+        self.fileset = (root, files)
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _mrxs(tmp_path: Path) -> tuple[Path, tuple[str, ...]]:
+    (tmp_path / "s").mkdir()
+    (tmp_path / "s.mrxs").write_bytes(b"preview")
+    (tmp_path / "s" / "Data0000.dat").write_bytes(b"tiles")
+    return tmp_path, ("s.mrxs", "s/Data0000.dat")
+
+
+def test_file_sets_are_hashed_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, files = _mrxs(tmp_path)
+    opened: list[_SetSource] = []
+
+    def fake_open(path: Path, e: SlideEntry, override: Any) -> _SetSource:
+        opened.append(_SetSource(root, files))
+        return opened[-1]
+
+    monkeypatch.setattr(registry_mod, "_open_auto", fake_open)
+    whole = fileset_sha256(root, files, file_sha256)
+    mrxs_hash = file_sha256(root / "s.mrxs")
+    good = [
+        entry(id="a", path="s.mrxs"),
+        entry(id="b", path="s.mrxs", fileset_sha256=whole, sha256=mrxs_hash),
+    ]
+    reg = SlideRegistry(good, root, cache_dir=tmp_path / "cache")
+    assert reg.get("a").sha256 == whole  # the content hash of a set is the set's hash
+    assert reg.get("b").sha256 == whole
+    bad = [
+        entry(id="c", path="s.mrxs", fileset_sha256="0" * 64),
+        entry(id="d", path="s.mrxs", sha256="0" * 64),
+    ]
+    reg = SlideRegistry(bad, root)
+    for slide_id, field in (("c", "fileset_sha256"), ("d", "sha256")):
+        with pytest.raises(SlideIntegrityError, match=field):
+            reg.get(slide_id)
+        assert opened[-1].closed  # a refused slide's handle is closed
+    (root / "s" / "Data0000.dat").unlink()
+    with pytest.raises(SlideNotFound, match="1 of its 2 files are missing"):
+        SlideRegistry([entry(id="e", path="s.mrxs")], root).get("e")
+
+
+def test_pins_must_fit_the_slide(
+    slide_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ConfigError, match="single file"):
+        SlideRegistry([entry(fileset_sha256="0" * 64)], slide_dir).get("syn")
+    (tmp_path / "series").mkdir()  # e.g. a DICOM series, read as a folder
+    folder_source = ArraySlideSource([np.zeros((8, 8, 3), np.uint8)], (0.5, 0.5))
+    monkeypatch.setattr(registry_mod, "_open_auto", lambda *a: folder_source)
+    with pytest.raises(ConfigError, match="is a folder"):
+        SlideRegistry([entry(id="f", path="series", sha256="0" * 64)], tmp_path).get("f")

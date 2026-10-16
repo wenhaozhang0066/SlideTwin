@@ -11,7 +11,7 @@ import tifffile
 
 from slidetwin.core.errors import SlideMetadataError, SlideReadError
 from slidetwin.core.formats import FormatMatch, sniff
-from slidetwin.core.slide_source import TiffSlideSource
+from slidetwin.core.slide_source import ReaderOptions, TiffSlideSource
 from slidetwin.readers import open_source
 from slidetwin.readers.tiff import TiffFamilySource
 from tests.helpers.synth import line_image, pyramid
@@ -247,13 +247,10 @@ def test_open_source_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         open_source(path, FormatMatch("plain-image", None, "Do X."), name="s1")
     with pytest.raises(SlideMetadataError, match="does not have yet"):
         open_source(path, FormatMatch("zeiss-czi", "czi"), name="s1")
-    import slidetwin.core.slide_source as ss
+    import slidetwin.readers as readers
 
-    def no_openslide(*args: Any, **kwargs: Any) -> Any:
-        raise ModuleNotFoundError("openslide")
-
-    monkeypatch.setattr(ss, "OpenSlideSource", no_openslide)
-    with pytest.raises(SlideMetadataError, match="needs OpenSlide") as err:
+    monkeypatch.setitem(readers.READERS, "openslide", ("slidetwin_no_such_reader", "openslide"))
+    with pytest.raises(SlideMetadataError, match="is not installed") as err:
         open_source(path, FormatMatch("hamamatsu-ndpi", "openslide"), name="s1")
     assert "slidetwin[openslide]" in (err.value.hint or "")
 
@@ -265,3 +262,10 @@ def test_cmu_svs_matches_tiffslide(cmu_small_path: Path) -> None:
     np.testing.assert_array_equal(
         new.read_level(0, 100, 200, 300, 250), old.read_level(0, 100, 200, 300, 250)
     )
+
+
+def test_tiff_formats_have_no_scenes_planes_or_channels(tmp_path: Path) -> None:
+    path = write_tiff(tmp_path / "a.tif")
+    match = FormatMatch("generic-tiff", "tifffile")
+    with pytest.raises(SlideMetadataError, match="has no scene or plane to choose"):
+        open_source(path, match, name="s1", options=ReaderOptions(scene=1, plane=0))

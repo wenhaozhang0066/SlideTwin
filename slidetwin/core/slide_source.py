@@ -10,6 +10,7 @@ import importlib.metadata
 import math
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -58,6 +59,35 @@ class SlideSource(Protocol):
         ...
 
     def close(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ReaderOptions:
+    """Manifest choices a reader honours (M8): scene or ROI, focal plane, fluorescence channels,
+    and whether formats validated only on synthetic samples may be served."""
+
+    scene: int | None = None
+    plane: int | None = None
+    channels: tuple[int, ...] | None = None
+    experimental: bool = False
+
+    def refuse_unused(
+        self,
+        name: str,
+        fmt: str,
+        *,
+        scene: bool = False,
+        plane: bool = False,
+        channels: bool = False,
+    ) -> None:
+        """Refuse choices that this format has nothing to apply to (a typo, or the wrong slide)."""
+        wanted = {"scene": scene, "plane": plane, "channels": channels}
+        unused = [key for key, ok in wanted.items() if getattr(self, key) is not None and not ok]
+        if unused:
+            raise SlideMetadataError(
+                f"Slide '{name}' ({fmt}) has no {' or '.join(unused)} to choose.",
+                hint="Remove that field from the slide's manifest entry.",
+            )
 
 
 def slide_size_um(source: SlideSource) -> tuple[float, float]:

@@ -14,12 +14,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import tifffile
+import zarr
 
 from slidetwin.core.errors import SlideMetadataError, SlideTwinError
+from slidetwin.core.formats import FormatMatch
 from slidetwin.core.geometry import Point
 from slidetwin.core.slide_source import (
     RGB,
     BaseSource,
+    ReaderOptions,
     read_error,
     resolve_mpp,
     to_rgb,
@@ -35,13 +39,22 @@ MPP_RANGE = (0.05, 20.0)
 _UNIT_UM = {2: 25_400.0, 3: 10_000.0}  # TIFF ResolutionUnit: inch, centimetre
 
 
+def open_reader(
+    path: Path,
+    match: FormatMatch,
+    *,
+    name: str,
+    mpp_override: Point | None,
+    options: ReaderOptions,
+) -> TiffFamilySource:
+    options.refuse_unused(name, match.format)
+    return TiffFamilySource(path, name=name, fmt=match.format, mpp_override=mpp_override)
+
+
 class TiffFamilySource(BaseSource):
     def __init__(
         self, path: Path, *, name: str, fmt: str, mpp_override: Point | None = None
     ) -> None:
-        import tifffile
-        import zarr
-
         if fmt not in FORMATS:
             raise SlideMetadataError(f"Slide '{name}': the TIFF reader does not handle {fmt}.")
         try:

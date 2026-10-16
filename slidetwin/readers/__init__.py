@@ -1,46 +1,58 @@
 """Slide readers (M8), one per format family, chosen by `slidetwin.core.formats.sniff`.
 
-`open_source` opens a slide with the reader the router chose. A reader whose library is not
-installed is refused with the extra to install; there is no silent fallback to another reader.
+`open_source` opens a slide with the reader the router chose. Each reader module imports its
+library at the top, so a missing library is reported with the extra to install; there is no silent
+fallback to another reader. A reader module provides
+`open_reader(path, match, *, name, mpp_override, options) -> SlideSource`.
 """
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 from slidetwin.core.errors import SlideMetadataError
 from slidetwin.core.formats import FormatMatch
 from slidetwin.core.geometry import Point
-from slidetwin.core.slide_source import SlideSource
+from slidetwin.core.slide_source import ReaderOptions, SlideSource
 
-# Readers that exist in this version; the others named by the router come later in M8.
-AVAILABLE = ("tifffile", "openslide")
+# reader id -> (module, pip extra that installs its library, or None for the base install)
+READERS: dict[str, tuple[str, str | None]] = {
+    "tifffile": ("slidetwin.readers.tiff", None),
+    "openslide": ("slidetwin.readers.openslide", "openslide"),
+}
 
 
 def open_source(
-    path: Path, match: FormatMatch, *, name: str, mpp_override: Point | None = None
+    path: Path,
+    match: FormatMatch,
+    *,
+    name: str,
+    mpp_override: Point | None = None,
+    options: ReaderOptions | None = None,
 ) -> SlideSource:
     if match.reader is None:
         raise SlideMetadataError(
             f"Slide '{name}' is in a format SlideTwin cannot read ({match.format}).",
             hint=match.reason,
         )
-    if match.reader == "tifffile":
-        from slidetwin.readers.tiff import TiffFamilySource
-
-        return TiffFamilySource(path, name=name, fmt=match.format, mpp_override=mpp_override)
-    if match.reader == "openslide":
-        from slidetwin.core.slide_source import OpenSlideSource
-
-        try:
-            return OpenSlideSource(path, name=name, mpp_override=mpp_override)
-        except ModuleNotFoundError:
-            raise SlideMetadataError(
-                f"Slide '{name}' ({match.format}) needs OpenSlide, which is not installed.",
-                hint='Install it with pip install "slidetwin[openslide]".',
-            ) from None
-    raise SlideMetadataError(
-        f"Slide '{name}' ({match.format}) needs the {match.reader} reader, which this version of "
-        "SlideTwin does not have yet.",
-        hint="Convert the slide to a pyramidal TIFF, or use a later version.",
+    spec = READERS.get(match.reader)
+    if spec is None:
+        raise SlideMetadataError(
+            f"Slide '{name}' ({match.format}) needs the {match.reader} reader, which this version "
+            "of SlideTwin does not have yet.",
+            hint="Convert the slide to a pyramidal TIFF, or use a later version.",
+        )
+    module_name, extra = spec
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as err:
+        raise SlideMetadataError(
+            f"Slide '{name}' ({match.format}) needs the {match.reader} reader, whose library "
+            f"({err.name}) is not installed.",
+            hint=f'Install it with pip install "slidetwin[{extra}]".',
+        ) from None
+    opened: SlideSource = module.open_reader(
+        path, match, name=name, mpp_override=mpp_override, options=options or ReaderOptions()
     )
+    return opened
