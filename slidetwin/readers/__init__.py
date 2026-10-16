@@ -30,6 +30,7 @@ READERS: dict[str, tuple[str, str | None]] = {
     "qptiff": ("slidetwin.readers.qptiff", None),
     "isyntax": ("slidetwin.readers.isyntax", "isyntax"),
     "slideio": ("slidetwin.readers.vsi", "slideio"),
+    "zvi": ("slidetwin.readers.zvi", "slideio"),
 }
 
 
