@@ -310,7 +310,9 @@ def serve(conn: Connection, path: str, driver: str, library: str) -> None:
     to stop or closes the socket."""
     with contextlib.suppress(EOFError, OSError):  # the server closed the socket
         try:
-            slide = importlib.import_module(library).open_slide(path, driver)
+            module = importlib.import_module(library)
+            module.set_log_level("OFF")  # its log names files; keep it out of the server's log
+            slide = module.open_slide(path, driver)
             scenes = [slide.get_scene(i) for i in range(slide.num_scenes)]
             report = [describe(scene) for scene in scenes]
         except Exception as err:

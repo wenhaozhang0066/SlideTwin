@@ -64,7 +64,7 @@ class VsiSource(BaseSource):
             index, info = _choose_scene(worker.scenes, scene, name)
             _check_pixels(info, name)
             factors = _level_factors(info, name)
-            raw = (info.resolution[0] * 1e6, info.resolution[1] * 1e6)  # metres per pixel
+            raw = (info.resolution[0] * 1e6, info.resolution[1] * 1e6)  # slideio gives metres
             trusted = raw if _plausible(raw) else (None, None)
             mpp = resolve_mpp(trusted[0], trusted[1], mpp_override, name)
         except SlideTwinError:

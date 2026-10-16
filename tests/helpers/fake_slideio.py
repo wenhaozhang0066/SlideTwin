@@ -156,6 +156,13 @@ class Slide:
         return self._scenes[index]
 
 
+LOG_LEVELS: list[str] = []
+
+
+def set_log_level(level: str) -> None:
+    LOG_LEVELS.append(level)
+
+
 def open_slide(path: str, driver: str) -> Slide:
     spec = json.loads(Path(path + ".fake.json").read_text())
     if driver != spec.get("driver", driver):

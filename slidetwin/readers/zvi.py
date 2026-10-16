@@ -186,16 +186,16 @@ def _directory(f: BinaryIO, size: int) -> dict[str, int]:
         (value,) = struct.unpack_from("<I", sector(fat[s // per_sector]), (s % per_sector) * 4)
         return int(value)
 
-    raw = b""
+    parts = []
     s = first_dir
     for _ in range(n_sectors):
         if s == _END:
             break
-        raw += sector(s)
+        parts.append(sector(s))
         s = following(s)
     else:
         raise ValueError("the directory does not end")
-    return _tree(raw)
+    return _tree(b"".join(parts))
 
 
 def _tree(raw: bytes) -> dict[str, int]:

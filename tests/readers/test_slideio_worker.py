@@ -36,7 +36,7 @@ from slidetwin.readers.slideio_worker import (
     send,
     serve,
 )
-from tests.helpers.fake_slideio import pixels, scene_spec, write_spec
+from tests.helpers.fake_slideio import LOG_LEVELS, pixels, scene_spec, write_spec
 
 FAKE = "tests.helpers.fake_slideio"
 
@@ -366,8 +366,10 @@ def run_serve(path: Path, driver: str = "VSI") -> tuple[Connection, threading.Th
 
 
 def test_serve(tmp_path: Path) -> None:
+    LOG_LEVELS.clear()
     ours, thread = run_serve(slide(tmp_path, [scene_spec(), scene_spec(channels=1)]))
     assert scene_infos(receive(ours, 5.0))[1].channels == 1
+    assert LOG_LEVELS == ["OFF"]  # slideio's log names files
     request = {"op": "read", "scene": 1, "level": 1, "rect": [3, 4, 5, 6]}
     block = request_block(ours, request, (6, 5))
     np.testing.assert_array_equal(block, pixels(1, 1, 3, 4, 5, 6, channels=1))
