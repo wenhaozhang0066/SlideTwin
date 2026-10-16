@@ -23,6 +23,12 @@ agent. Others watch the demo in a browser (M10).
 - CI builds the wheel and the sdist, installs the wheel in a fresh environment and runs a smoke
   test from outside the repository (serve, open the CC0 slide, one view, MCP ping).
 - The name `slidetwin` is free on PyPI (checked 2026-10-16). Publishing waits for the owner.
+- Carried over from M8 (PLAN_M8 decisions 1-3, approved):
+  - the reader plugin hook: `slidetwin.readers` entry points, asked only about files that no
+    built-in reader takes, with the plugin and its version in the provenance;
+  - the Docker image with the permissive extras and OpenSlide, its licence and its source
+    archive;
+  - the Codespace with every reader extra.
 
 ## Command line (`slidetwin`)
 
