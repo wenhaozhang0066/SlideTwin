@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,7 @@ from slidetwin.core.errors import ReplayError, SlideTwinError
 from slidetwin.core.images import MemoryImageStore
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.session import Session
+from slidetwin.core.slide_source import source_provenance
 from slidetwin.core.trajectory import load_trajectory, parse_trajectory
 
 # Fields of an event that must be identical in a replay. Wall time and client metadata are not.
@@ -102,6 +104,12 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
         raise ReplayError(
             f"Slide '{slide.slide_id}' differs from the file used in the log (sha256 mismatch)."
         )
+    logged = header["slide"].get("provenance")  # absent in logs written before M8
+    if logged is not None and _settings(logged) != _settings(source_provenance(slide.source)):
+        raise ReplayError(
+            f"Slide '{slide.slide_id}' is read differently from the log (reader, format or "
+            "settings changed)."
+        )
     try:
         profile = load_profile_data(header["profile"]["content"], "trajectory header")
         protocol = load_protocol_data(header["protocol"]["content"], "trajectory header")
@@ -154,3 +162,11 @@ def replay(trajectory: Path | str, registry: SlideRegistry) -> ReplayReport:
         mismatches=mismatches,
         skipped=skipped,
     )
+
+
+def _settings(provenance: Any) -> Any:
+    """Provenance without library versions, as JSON would store it (tuples become lists).
+    Versions may change while the pixels stay the same; the pixel hashes check those."""
+    if not isinstance(provenance, Mapping):
+        return provenance
+    return json.loads(json.dumps({k: v for k, v in provenance.items() if k != "versions"}))

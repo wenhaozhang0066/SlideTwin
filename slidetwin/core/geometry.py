@@ -131,12 +131,42 @@ def available_mags(
 # --- pyramid levels ------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class LevelTransform:
+    """Places a level's pixel grid on level 0, per axis: level-0 px = offset + scale * level px.
+
+    Most pyramids span the whole slide, so the scale is the level-0 extent over the level extent
+    and the offset is 0 (D13). A reader that knows the exact scale (e.g. 2^k when a level covers
+    a few pixels less than the slide) gives its own.
+    """
+
+    scale_x: float
+    scale_y: float
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+
+    def __post_init__(self) -> None:
+        values = (self.scale_x, self.scale_y, self.offset_x, self.offset_y)
+        if not _finite(*values) or self.scale_x <= 0 or self.scale_y <= 0:
+            raise InvalidParameter(f"Invalid level transform {values}.")
+
+
+def extent_transforms(level0_dims: Size, level_dims: Sequence[Size]) -> tuple[LevelTransform, ...]:
+    """The default transform of every level: each level spans the whole slide."""
+    w0, h0 = level0_dims
+    return tuple(LevelTransform(w0 / w, h0 / h) for (w, h) in level_dims)
+
+
+def transform_mpps(transforms: Sequence[LevelTransform], mpp_xy: Point) -> tuple[Point, ...]:
+    """Per-axis um/px of every level."""
+    mx, my = mpp_xy
+    return tuple((mx * t.scale_x, my * t.scale_y) for t in transforms)
+
+
 def level_mpps(level0_dims: Size, level_dims: Sequence[Size], mpp_xy: Point) -> tuple[Point, ...]:
     """Per-axis um/px of every level. Each level spans the whole slide, so its downsample on an
     axis is the level-0 extent divided by the level extent."""
-    w0, h0 = level0_dims
-    mx, my = mpp_xy
-    return tuple((mx * w0 / w, my * h0 / h) for (w, h) in level_dims)
+    return transform_mpps(extent_transforms(level0_dims, level_dims), mpp_xy)
 
 
 def choose_level(levels: Sequence[Point], target: Point) -> int:

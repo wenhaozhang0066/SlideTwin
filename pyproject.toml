@@ -9,12 +9,12 @@ description = "Agent-operable digital pathology viewer simulator (research proto
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{ name = "SlideTwin contributors" }]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
@@ -29,11 +29,14 @@ dependencies = [
   "pillow>=10.4",
   "pyyaml>=6.0",
   "scipy>=1.11",
-  "tiffslide>=3.0",
+  "tiffslide>=4.0",
+  "tifffile>=2026.6",
+  "imagecodecs>=2026.1",
+  "zarr>=3.1",
 ]
 
 [project.optional-dependencies]
-openslide = ["openslide-python>=1.4", "openslide-bin>=4.0"]
+openslide = ["openslide-python>=1.4", "openslide-bin>=4.0.1.1"]
 llm = ["anthropic>=1.15,<2"]
 e2e = ["playwright>=1.45"]
 dev = [
@@ -45,9 +48,8 @@ dev = [
   "anthropic>=1.15,<2",
   "types-PyYAML>=6.0",
   "types-jsonschema>=4.20",
-  "tifffile>=2024.1",
   "openslide-python>=1.4",
-  "openslide-bin>=4.0",
+  "openslide-bin>=4.0.1.1",
 ]
 
 [tool.hatch.version]
@@ -67,7 +69,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "N"]
 ignore = ["N818"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
@@ -87,7 +89,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["slidetwin/core"]
+source = ["slidetwin/core", "slidetwin/readers"]
 
 [tool.coverage.report]
 show_missing = true

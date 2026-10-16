@@ -58,6 +58,7 @@ Profile values (`configs/profiles/*.yaml`, profile-level `status: draft`):
 - **Python 3.11+.** CI tests 3.11 and 3.12. The newest tiffslide (4.0), numpy (2.5) and tifffile need
   3.12; on 3.11 pip resolves tiffslide 3.0.x. The development venv and the Docker image use 3.12.
   - Alternative: require 3.12. Rejected because SPEC says 3.11+.
+  - Superseded in M8 (owner, 2026-10-16): Python 3.12 or later, CI on 3.12 and 3.13.
 - **Build and tooling.**
   - hatchling, with the version taken from `slidetwin/__init__.py`.
   - ruff for lint and format; mypy strict on the whole package.
@@ -761,3 +762,29 @@ automatically.
   the same address. The default 2-core machine is kept (no `hostRequirements`): a larger machine
   would halve the free hours. GitHub's terms allow this for development and testing, such as a
   short demo, not as a permanent public service.
+
+## M8: every WSI format (in progress, 2026-10-16)
+
+Plan and the owner's decisions: docs/PLAN_M8.md. Done so far:
+
+- **Router** (`core/formats.py`). The reader is chosen from the file's content: magic bytes, then
+  tifffile's vendor flags for TIFF files. Formats without a validated open reader are refused with
+  the conversion route. Run over every survey sample, it named each format correctly.
+- **TIFF reader** (`readers/tiff.py`): Aperio SVS, Philips TIFF, Huron TIFF and generic pyramids,
+  through tifffile's zarr store with missing tiles white.
+  - Generic TIFF passes a structure check (IFD 0 tiled and the largest, levels shrinking with
+    the same proportions) and an mpp plausibility check (0.05-20 um/px; no unit means no mpp).
+  - Checked against tiffslide on all 399 CAMELYON16 slides on the cluster (398 Philips TIFF, one
+    generic TIFF) and the CC0 test slide: same levels, same mpp, identical pixels in three random
+    regions per level. The demo slides therefore render exactly as before.
+- **Default reader `auto`.** Manifest entries without `backend` use the router; `tiffslide` and
+  `openslide` keep their earlier behaviour.
+- **Level transforms** (`geometry.LevelTransform`). A reader may give each level's exact scale and
+  offset; the default is D13's extent ratio, so existing slides are unchanged.
+- **Provenance.** The trajectory header records the reader, format and settings; replay refuses a
+  slide read differently. Library versions are recorded but not compared, and logs written before
+  M8 (no provenance) still replay.
+- **File sets** (`core/fileset.py`): completeness checks and one canonical hash, ready for the
+  multi-file readers.
+- **Python 3.12 or later** (decision 7), CI on 3.12 and 3.13. OpenSlide's floor is 4.0.1.1.
+

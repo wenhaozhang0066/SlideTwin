@@ -69,7 +69,7 @@ def test_list_values_in_eval_only_are_checked_too() -> None:
 def test_concurrent_first_opens_share_one_handle(
     tiff: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = registry_mod.open_slide
+    real = registry_mod._open_auto
     calls: list[int] = []
 
     def slow_open(*args: Any, **kwargs: Any) -> Any:
@@ -77,7 +77,7 @@ def test_concurrent_first_opens_share_one_handle(
         time.sleep(0.2)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(registry_mod, "open_slide", slow_open)
+    monkeypatch.setattr(registry_mod, "_open_auto", slow_open)
     reg = SlideRegistry([SlideEntry(id="s", path=tiff.name)], tiff.parent)
     results: list[Any] = []
     threads = [threading.Thread(target=lambda: results.append(reg.get("s"))) for _ in range(3)]

@@ -136,6 +136,19 @@ def test_replay_detects_tampering(
     assert field in {m["field"] for m in report.mismatches}
 
 
+def test_logs_without_provenance_and_new_versions_still_replay(
+    good_log: str, tiff_registry: SlideRegistry
+) -> None:
+    def old_log(lines: list[dict[str, Any]]) -> None:
+        del lines[0]["slide"]["provenance"]  # written before M8
+
+    def upgraded(lines: list[dict[str, Any]]) -> None:
+        lines[0]["slide"]["provenance"]["versions"] = {"tiffslide": "0.0.1"}
+
+    assert replay(tampered(good_log, old_log), tiff_registry).ok
+    assert replay(tampered(good_log, upgraded), tiff_registry).ok
+
+
 def test_jpeg_hash_differences_are_tolerated(good_log: str, tiff_registry: SlideRegistry) -> None:
     edited = tampered(good_log, lambda ls: ls[2]["observation"].update(jpeg_sha256="f" * 64))
     assert replay(edited, tiff_registry).ok
@@ -145,6 +158,8 @@ def test_jpeg_hash_differences_are_tolerated(good_log: str, tiff_registry: Slide
     ("edit", "message"),
     [
         (lambda ls: ls[0]["slide"].update(sha256="0" * 64), "differs from the file"),
+        (lambda ls: ls[0]["slide"]["provenance"].update(reader="other"), "read differently"),
+        (lambda ls: ls[0]["slide"].update(provenance="tiffslide"), "read differently"),
         (lambda ls: ls[0]["profile"]["content"].update(mag_tolerance=0.01), "profile"),
         (lambda ls: ls[0]["protocol"]["content"].update(version="9"), "protocol"),
         (lambda ls: ls[2].update(action="teleport"), "Unknown action"),

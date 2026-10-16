@@ -11,12 +11,14 @@ from hypothesis import strategies as st
 from slidetwin.core.errors import InvalidParameter
 from slidetwin.core.geometry import (
     BBox,
+    LevelTransform,
     available_mags,
     choose_level,
     clamp_center,
     crop_geometry,
     displacement_in_viewports,
     distance,
+    extent_transforms,
     format_mag,
     fov_um,
     is_mag_available,
@@ -24,6 +26,7 @@ from slidetwin.core.geometry import (
     mag_for_mpp,
     mpp_for_mag,
     thumbnail_size,
+    transform_mpps,
     um_to_view_px,
     view_px_to_um,
     viewport_bbox,
@@ -356,3 +359,30 @@ def test_bbox_basics() -> None:
         BBox(0.0, 0.0, -1.0, 5.0)
     with pytest.raises(InvalidParameter):
         BBox(0.0, math.nan, 1.0, 5.0)
+
+
+# --- level transforms -----------------------------------------------------------------------
+
+
+def test_extent_transforms_are_d13() -> None:
+    dims = [(1000, 800), (500, 400), (126, 99)]
+    transforms = extent_transforms(dims[0], dims)
+    assert transforms[0] == LevelTransform(1.0, 1.0)
+    assert transforms[1] == LevelTransform(2.0, 2.0)
+    assert transforms[2] == LevelTransform(1000 / 126, 800 / 99)
+    assert transform_mpps(transforms, (0.5, 0.25)) == level_mpps(dims[0], dims, (0.5, 0.25))
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        (0.0, 1.0),
+        (1.0, -2.0),
+        (math.nan, 1.0),
+        (1.0, 1.0, math.inf, 0.0),
+        (1.0, 1.0, 0.0, math.nan),
+    ],
+)
+def test_invalid_level_transforms_are_refused(values: tuple[float, ...]) -> None:
+    with pytest.raises(InvalidParameter):
+        LevelTransform(*values)

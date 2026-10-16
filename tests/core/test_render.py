@@ -9,10 +9,10 @@ from hypothesis import strategies as st
 
 from slidetwin.core import render
 from slidetwin.core.errors import InvalidParameter, SlideMetadataError
-from slidetwin.core.geometry import BBox, mpp_for_mag
+from slidetwin.core.geometry import BBox, LevelTransform, mpp_for_mag
 from slidetwin.core.render import render_region
 from slidetwin.core.slide_source import ArraySlideSource, SlideSource
-from tests.helpers.synth import dark_centroid, line_source
+from tests.helpers.synth import dark_centroid, line_image, line_source, pyramid
 
 MPP0 = 0.25
 # An 8-px dark band centred on column 1024. Box-averaged pyramid levels move a feature to the centre
@@ -127,3 +127,36 @@ def test_shallow_pyramid_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_region_entirely_outside_is_all_fill(src40: SlideSource) -> None:
     img = render_region(src40, BBox(-900.0, -900.0, -500.0, -600.0), (40, 30), fill_rgb=(1, 2, 3))
     assert (img == (1, 2, 3)).all()
+
+
+def test_level_offset_from_the_reader_is_honoured() -> None:
+    """A level that starts 32 level-0 px into the slide (Trestle's coarse levels) is placed by its
+    own transform; the extent ratio would shift it by 32 px and stretch it."""
+    level0 = line_image(2048, 1024, BAND, ())
+    shifted = pyramid(level0[:, 32:], 2)[1]  # 1008 x 512: level 1 of the slide minus 32 columns
+    exact = ArraySlideSource(
+        [level0, shifted],
+        (MPP0, MPP0),
+        transforms=[LevelTransform(1.0, 1.0), LevelTransform(2.0, 2.0, 32.0, 0.0)],
+    )
+    naive = ArraySlideSource([level0, shifted], (MPP0, MPP0))
+    mpp = 2.2 * MPP0  # both read level 1 (the naive source thinks it is 0.508 um/px)
+    bbox = BBox(LINE_UM - 64 * mpp, 100.0, LINE_UM + 64 * mpp, 100.0 + 8 * mpp)
+    want = expected_index(LINE_UM, bbox.x0, mpp)
+    good = dark_centroid(render_region(exact, bbox, (128, 8))[4, :, 0])
+    bad = dark_centroid(render_region(naive, bbox, (128, 8))[4, :, 0])
+    assert good == pytest.approx(want, abs=0.1)
+    assert abs(bad - want) > 3
+
+
+def test_transforms_must_match_the_pyramid() -> None:
+    level0 = line_image(256, 128, (10,), ())
+    levels = pyramid(level0, 2)
+    with pytest.raises(SlideMetadataError):
+        ArraySlideSource(levels, (MPP0, MPP0), transforms=[LevelTransform(1.0, 1.0)])
+    with pytest.raises(SlideMetadataError):
+        ArraySlideSource(
+            levels,
+            (MPP0, MPP0),
+            transforms=[LevelTransform(1.0, 1.0, 3.0, 0.0), LevelTransform(2.0, 2.0)],
+        )

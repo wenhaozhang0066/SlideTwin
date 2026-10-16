@@ -21,7 +21,14 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from slidetwin.core.errors import ConfigError, SlideIntegrityError, SlideNotFound
+from slidetwin.core.errors import (
+    ConfigError,
+    SlideIntegrityError,
+    SlideMetadataError,
+    SlideNotFound,
+)
+from slidetwin.core.formats import sniff
+from slidetwin.core.geometry import Point
 from slidetwin.core.slide_source import SlideSource, open_slide
 
 SLIDE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -44,7 +51,10 @@ class SlideEntry(BaseModel):
     license: str | None = None
     attribution: str | None = None
     mpp_override: MppOverride | None = None
-    backend: Literal["tiffslide", "openslide"] = "tiffslide"
+    # "auto" (M8): the reader is chosen from the file's content (slidetwin.core.formats). The two
+    # named backends keep the behaviour of earlier manifests.
+    backend: Literal["auto", "tiffslide", "openslide"] = "auto"
+    format: str | None = Field(None, pattern=r"^[a-z0-9-]{1,40}$")  # expected format, checked
 
     @field_validator("path")
     @classmethod
@@ -203,7 +213,10 @@ class SlideRegistry:
     def _open_entry(self, entry: SlideEntry) -> RegisteredSlide:
         path = self._slide_dir / entry.path
         override = (entry.mpp_override.x, entry.mpp_override.y) if entry.mpp_override else None
-        source = open_slide(path, backend=entry.backend, mpp_override=override, name=entry.id)
+        if entry.backend == "auto":
+            source = _open_auto(path, entry, override)
+        else:
+            source = open_slide(path, backend=entry.backend, mpp_override=override, name=entry.id)
         try:
             # A pinned hash is always verified on the file itself (once per process); the cache
             # only spares unpinned slides from re-hashing.
@@ -267,3 +280,15 @@ class SlideRegistry:
             for reg in self._open.values():
                 reg.source.close()
             self._open.clear()
+
+
+def _open_auto(path: Path, entry: SlideEntry, override: Point | None) -> SlideSource:
+    from slidetwin.readers import open_source
+
+    match = sniff(path, entry.id)
+    if entry.format is not None and entry.format != match.format:
+        raise SlideMetadataError(
+            f"Slide '{entry.id}' is {match.format}, not {entry.format} as the manifest says.",
+            hint="Correct the manifest's format field, or check that the right file is in place.",
+        )
+    return open_source(path, match, name=entry.id, mpp_override=override)

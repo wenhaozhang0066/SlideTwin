@@ -65,7 +65,13 @@ from slidetwin.core.ledger import Ledger, to_s
 from slidetwin.core.render import render_region
 from slidetwin.core.report import validate_report
 from slidetwin.core.rules import MeasurementFact, ViewFact, check_report
-from slidetwin.core.slide_source import RGB, SlideSource, native_mpp, slide_size_um
+from slidetwin.core.slide_source import (
+    RGB,
+    SlideSource,
+    native_mpp,
+    slide_size_um,
+    source_provenance,
+)
 from slidetwin.core.trajectory import SCHEMA_VERSION, TrajectoryWriter
 from slidetwin.version import app_version
 
@@ -888,6 +894,7 @@ class Session:
                 "mpp": list(self._source.mpp),
                 "dimensions_px": list(self._source.dimensions),
                 "backend": self._source.backend,
+                "provenance": source_provenance(self._source),
             },
             "profile": {
                 "id": self.profile.id,

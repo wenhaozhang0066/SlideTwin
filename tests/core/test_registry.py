@@ -190,3 +190,36 @@ def test_add_source(synthetic: Any) -> None:
     reg.add_source("mem", synthetic, "a" * 64)
     assert reg.ids() == ["mem"]
     assert reg.get("mem").source is synthetic
+
+
+def test_named_backends_still_work_and_auto_is_the_default(slide_dir: Path) -> None:
+    assert entry().backend == "auto"
+    reg = SlideRegistry([entry(), entry(id="ts", backend="tiffslide")], slide_dir)
+    assert reg.get("syn").source.backend.startswith("tifffile")
+    assert reg.get("ts").source.backend.startswith("tiffslide")
+    a, b = reg.get("syn").source, reg.get("ts").source
+    np.testing.assert_array_equal(a.read_level(1, 0, 0, 256, 256), b.read_level(1, 0, 0, 256, 256))
+    reg.close()
+
+
+def test_expected_format_is_checked(slide_dir: Path) -> None:
+    reg = SlideRegistry(
+        [entry(format="generic-tiff"), entry(id="svs", format="aperio-svs")], slide_dir
+    )
+    assert reg.get("syn").source.provenance["format"] == "generic-tiff"
+    with pytest.raises(SlideMetadataError, match="is generic-tiff, not aperio-svs"):
+        reg.get("svs")
+    reg.close()
+
+
+def test_refused_formats_explain_what_to_do(tmp_path: Path) -> None:
+    (tmp_path / "scan.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+    (tmp_path / "scan.czi").write_bytes(b"ZISRAWFILE" + b"\x00" * 64)
+    reg = SlideRegistry(
+        [entry(id="jpg", path="scan.jpg"), entry(id="czi", path="scan.czi")], tmp_path
+    )
+    with pytest.raises(SlideMetadataError, match="cannot read") as err:
+        reg.get("jpg")
+    assert "pyramidal TIFF" in (err.value.hint or "")
+    with pytest.raises(SlideMetadataError, match="does not have yet"):
+        reg.get("czi")

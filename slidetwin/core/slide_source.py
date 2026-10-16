@@ -23,9 +23,16 @@ from slidetwin.core.errors import (
     SlideReadError,
     SlideTwinError,
 )
-from slidetwin.core.geometry import Point, Size, level_mpps
+from slidetwin.core.geometry import (
+    LevelTransform,
+    Point,
+    Size,
+    extent_transforms,
+    transform_mpps,
+)
 
 RGB = NDArray[np.uint8]
+Provenance = dict[str, Any]
 
 BACKENDS = ("tiffslide", "openslide")
 
@@ -59,8 +66,34 @@ def slide_size_um(source: SlideSource) -> tuple[float, float]:
     return (w * mx, h * my)
 
 
+def source_level_transforms(source: SlideSource) -> tuple[LevelTransform, ...]:
+    """The source's own level transforms (optional member), else D13's extent ratios."""
+    own = getattr(source, "level_transforms", None)
+    if own is not None:
+        return tuple(own)
+    return extent_transforms(source.dimensions, source.level_dimensions)
+
+
 def source_level_mpps(source: SlideSource) -> tuple[Point, ...]:
-    return level_mpps(source.dimensions, source.level_dimensions, source.mpp)
+    return transform_mpps(source_level_transforms(source), source.mpp)
+
+
+def source_provenance(source: SlideSource) -> Provenance:
+    """What produced the pixels (optional member): reader, format and settings, never names from
+    the file. Replay compares everything but `versions`."""
+    own = getattr(source, "provenance", None)
+    return dict(own) if own is not None else _backend_provenance(source.backend)
+
+
+def _backend_provenance(backend: str) -> Provenance:
+    """Split a backend such as 'tiffslide 4.0.0' into the reader and its version. The version is
+    kept apart: a library upgrade that keeps the pixels must not stop a replay (the pixel hashes
+    check the pixels)."""
+    reader, _, version = backend.partition(" ")
+    out: Provenance = {"reader": reader}
+    if version:
+        out["versions"] = {reader: version}
+    return out
 
 
 def native_mpp(source: SlideSource) -> float:
@@ -105,9 +138,16 @@ def to_rgb(arr: NDArray[Any]) -> RGB:
     raise SlideMetadataError(f"Unsupported pixel layout {arr.shape}; expected gray, RGB or RGBA.")
 
 
-class _BaseSource:
+class BaseSource:
     def __init__(
-        self, level_dimensions: Sequence[Size], mpp: Point, backend: str, name: str
+        self,
+        level_dimensions: Sequence[Size],
+        mpp: Point,
+        backend: str,
+        name: str,
+        *,
+        transforms: Sequence[LevelTransform] | None = None,
+        provenance: Provenance | None = None,
     ) -> None:
         dims = tuple((int(w), int(h)) for w, h in level_dimensions)
         if not dims or any(w <= 0 or h <= 0 for w, h in dims):
@@ -117,6 +157,24 @@ class _BaseSource:
         self._backend = backend
         self._name = name
         self._lock = threading.Lock()
+        if transforms is None:
+            self._transforms = extent_transforms(dims[0], dims)
+        else:
+            self._transforms = tuple(transforms)
+            first = self._transforms[0] if self._transforms else None
+            if len(self._transforms) != len(dims) or first != LevelTransform(1.0, 1.0):
+                raise SlideMetadataError(
+                    f"Slide '{name}' has level transforms that do not match its pyramid."
+                )
+        self._provenance: Provenance = {**_backend_provenance(backend), **(provenance or {})}
+
+    @property
+    def level_transforms(self) -> tuple[LevelTransform, ...]:
+        return self._transforms
+
+    @property
+    def provenance(self) -> Provenance:
+        return dict(self._provenance)
 
     @property
     def dimensions(self) -> Size:
@@ -144,10 +202,17 @@ class _BaseSource:
             )
 
 
-class ArraySlideSource(_BaseSource):
+class ArraySlideSource(BaseSource):
     """In-memory pyramid for tests and synthetic slides."""
 
-    def __init__(self, levels: Sequence[RGB], mpp: Point, *, name: str = "array") -> None:
+    def __init__(
+        self,
+        levels: Sequence[RGB],
+        mpp: Point,
+        *,
+        name: str = "array",
+        transforms: Sequence[LevelTransform] | None = None,
+    ) -> None:
         for lvl in levels:
             if lvl.dtype != np.uint8 or lvl.ndim != 3 or lvl.shape[2] != 3:
                 raise SlideMetadataError("Array levels must be uint8 arrays of shape (h, w, 3).")
@@ -157,6 +222,7 @@ class ArraySlideSource(_BaseSource):
             resolve_mpp(mpp[0], mpp[1], None, name),
             "array",
             name,
+            transforms=transforms,
         )
 
     def read_level(self, level: int, x: int, y: int, w: int, h: int) -> RGB:
@@ -167,7 +233,7 @@ class ArraySlideSource(_BaseSource):
         self._levels = []
 
 
-class TiffSlideSource(_BaseSource):
+class TiffSlideSource(BaseSource):
     """Default reader (pure Python, via tiffslide)."""
 
     def __init__(self, path: Path, *, name: str, mpp_override: Point | None = None) -> None:
@@ -187,7 +253,7 @@ class TiffSlideSource(_BaseSource):
             raise
         except Exception as err:
             slide.close()
-            raise _unreadable(name, "tiffslide", err) from None
+            raise unreadable_error(name, "tiffslide", err) from None
         self._slide = slide
         backend = f"tiffslide {importlib.metadata.version('tiffslide')}"
         super().__init__(dims, mpp, backend, name)
@@ -198,14 +264,14 @@ class TiffSlideSource(_BaseSource):
             with self._lock:
                 arr = np.asarray(self._arrays[level][y : y + h, x : x + w])
         except Exception as err:
-            raise _read_failed(self._name, level, err) from None
+            raise read_error(self._name, level, err) from None
         return to_rgb(arr)
 
     def close(self) -> None:
         self._slide.close()
 
 
-class OpenSlideSource(_BaseSource):
+class OpenSlideSource(BaseSource):
     """Optional reader (OpenSlide C library via openslide-bin)."""
 
     def __init__(self, path: Path, *, name: str, mpp_override: Point | None = None) -> None:
@@ -226,7 +292,7 @@ class OpenSlideSource(_BaseSource):
             raise
         except Exception as err:
             slide.close()
-            raise _unreadable(name, "openslide", err) from None
+            raise unreadable_error(name, "openslide", err) from None
         self._slide = slide
         version = getattr(openslide, "__library_version__", "unknown")
         super().__init__(dims, mpp, f"openslide {version}", name)
@@ -238,14 +304,14 @@ class OpenSlideSource(_BaseSource):
             with self._lock:
                 img = self._slide.read_region((round(x * ds), round(y * ds)), level, (w, h))
         except Exception as err:
-            raise _read_failed(self._name, level, err) from None
+            raise read_error(self._name, level, err) from None
         return to_rgb(np.asarray(img))
 
     def close(self) -> None:
         self._slide.close()
 
 
-def _unreadable(name: str, backend: str, err: BaseException) -> SlideMetadataError:
+def unreadable_error(name: str, backend: str, err: BaseException) -> SlideMetadataError:
     # Only the slide id and the exception type reach clients; file names can carry labels.
     return SlideMetadataError(
         f"Slide '{name}' could not be opened with the {backend} backend ({type(err).__name__}).",
@@ -253,7 +319,7 @@ def _unreadable(name: str, backend: str, err: BaseException) -> SlideMetadataErr
     )
 
 
-def _read_failed(name: str, level: int, err: BaseException) -> SlideReadError:
+def read_error(name: str, level: int, err: BaseException) -> SlideReadError:
     return SlideReadError(
         f"Slide '{name}' could not be decoded at level {level} ({type(err).__name__}).",
         hint="The slide file may be damaged or incompletely downloaded.",
@@ -264,7 +330,7 @@ def _open_backend(opener: Any, name: str, backend: str) -> Any:
     try:
         return opener()
     except Exception as err:
-        raise _unreadable(name, backend, err) from None
+        raise unreadable_error(name, backend, err) from None
 
 
 def open_slide(

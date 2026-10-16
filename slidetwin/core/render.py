@@ -14,7 +14,12 @@ from PIL import Image
 
 from slidetwin.core.errors import InvalidParameter, SlideMetadataError
 from slidetwin.core.geometry import BBox, Size, choose_level
-from slidetwin.core.slide_source import RGB, SlideSource, source_level_mpps
+from slidetwin.core.slide_source import (
+    RGB,
+    SlideSource,
+    source_level_mpps,
+    source_level_transforms,
+)
 
 # Lanczos-3 support is 3 output pixels; one extra pixel of margin.
 _LANCZOS_SUPPORT = 3
@@ -57,12 +62,16 @@ def render_region(
     level = choose_level(levels, (tx, ty))
     lx, ly = levels[level]
     lw, lh = source.level_dimensions[level]
+    transform = source_level_transforms(source)[level]
+    # Where the level's pixel grid starts on the slide, um (0 unless the reader says otherwise).
+    ox, oy = transform.offset_x * source.mpp[0], transform.offset_y * source.mpp[1]
 
     kx, ky = _reduction(tx / lx), _reduction(ty / ly)
     vx, vy = lx * kx, ly * ky  # pixel size of the (possibly reduced) source, um
     vw, vh = -(-lw // kx), -(-lh // ky)
 
-    fx0, fy0, fx1, fy1 = bbox.x0 / vx, bbox.y0 / vy, bbox.x1 / vx, bbox.y1 / vy
+    fx0, fy0 = (bbox.x0 - ox) / vx, (bbox.y0 - oy) / vy
+    fx1, fy1 = (bbox.x1 - ox) / vx, (bbox.y1 - oy) / vy
     pad_x = math.ceil(_LANCZOS_SUPPORT * tx / vx) + 1
     pad_y = math.ceil(_LANCZOS_SUPPORT * ty / vy) + 1
     ix0, iy0 = math.floor(fx0) - pad_x, math.floor(fy0) - pad_y
@@ -91,8 +100,8 @@ def render_region(
             full[...] = fill_rgb
             full[:ph, :pw] = patch
             patch = np.asarray(Image.fromarray(full).reduce((kx, ky)), dtype=np.uint8)
-        oy, ox = cy0 - iy0, cx0 - ix0
-        canvas[oy : oy + patch.shape[0], ox : ox + patch.shape[1]] = patch
+        py, px = cy0 - iy0, cx0 - ix0
+        canvas[py : py + patch.shape[0], px : px + patch.shape[1]] = patch
 
     box = (fx0 - ix0, fy0 - iy0, fx1 - ix0, fy1 - iy0)
     out = Image.fromarray(canvas).resize((out_w, out_h), resample=Image.Resampling.LANCZOS, box=box)

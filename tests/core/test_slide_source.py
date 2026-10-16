@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import tifffile
 
 from slidetwin.core.errors import InvalidParameter, SlideMetadataError, SlideNotFound
+from slidetwin.core.geometry import LevelTransform
 from slidetwin.core.slide_source import (
     ArraySlideSource,
     OpenSlideSource,
@@ -17,6 +19,8 @@ from slidetwin.core.slide_source import (
     resolve_mpp,
     slide_size_um,
     source_level_mpps,
+    source_level_transforms,
+    source_provenance,
     to_rgb,
 )
 from tests.helpers.synth import line_image, pyramid, write_pyramid_tiff
@@ -145,6 +149,12 @@ def test_open_slide_errors(tmp_path: Path, tiff_path: Path) -> None:
     assert str(tmp_path) not in err.value.message  # no internal paths in messages
     with pytest.raises(InvalidParameter):
         open_slide(tiff_path, backend="bioformats", name="slide_x")
+    broken = tmp_path / "tumor_002.tif"
+    broken.write_bytes(b"II*\x00" + b"\xff" * 32)
+    for backend in ("tiffslide", "openslide"):
+        with pytest.raises(SlideMetadataError, match="slide_x") as bad:
+            open_slide(broken, backend=backend, name="slide_x")
+        assert "tumor" not in bad.value.message
 
 
 @pytest.mark.testdata
@@ -156,3 +166,27 @@ def test_cmu_slide_metadata(cmu_small_path: Path) -> None:
     # associated images (label, macro) exist in the file but have no accessor
     assert not hasattr(src, "associated_images")
     src.close()
+
+
+def test_provenance_keeps_versions_apart(tiff_path: Path, levels: list[np.ndarray]) -> None:
+    assert source_provenance(ArraySlideSource(levels, (0.25, 0.25))) == {"reader": "array"}
+    src = open_slide(tiff_path, name="syn")
+    prov = source_provenance(src)
+    assert prov["reader"] == "tiffslide"
+    assert set(prov["versions"]) == {"tiffslide"}
+    prov["reader"] = "changed"  # a copy: the source keeps its own
+    assert source_provenance(src)["reader"] == "tiffslide"
+    src.close()
+
+
+def test_sources_without_the_optional_members_get_defaults() -> None:
+    class Minimal:  # a SlideSource written before M8
+        dimensions = (400, 200)
+        mpp = (0.5, 0.5)
+        level_dimensions = ((400, 200), (100, 50))
+        backend = "custom 2.1"
+
+    src: Any = Minimal()
+    assert source_provenance(src) == {"reader": "custom", "versions": {"custom": "2.1"}}
+    assert source_level_transforms(src) == (LevelTransform(1.0, 1.0), LevelTransform(4.0, 4.0))
+    assert source_level_mpps(src) == ((0.5, 0.5), (2.0, 2.0))
