@@ -122,9 +122,10 @@ with Env("configs/slides/manifest.yaml", "data/slides") as env:
     step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
     step.error  # 被拒绝的动作，格式与 REST 相同
 
-with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
-    steps = vec.reset(["c16_fa751c"] * 8)  # 每个环境一个工作进程
-    steps = vec.step([{"action": "view"}] * 8)
+if __name__ == "__main__":  # VecEnv 用 spawn 启动工作进程，脚本必须有这个保护
+    with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
+        steps = vec.reset(["c16_fa751c"] * 8)  # 每个环境一个工作进程
+        steps = vec.step([{"action": "view"}] * 8)
 ```
 
 环境不给奖励：标准答案从不进入任何一步，由训练代码自己给阅片打分（例如用 `slidetwin.eval`）。不设 `log_dir` 就不写日志；设了之后每个 episode 都写出与网页会话相同、可回放的轨迹。`image="jpeg"` 返回 REST 和 MCP 提供的 JPEG。`scripts/bench_env.py` 测速度：在一张 CAMELYON16 切片上，单个环境每秒 32 个动作，8 个工作进程每秒 182 个（共享的 64 核节点）。

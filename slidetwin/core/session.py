@@ -387,10 +387,14 @@ class Session:
         wall_ms: Callable[[], int] | None = None,
         now_utc: Callable[[], datetime] = _utc_now,
         view_format: str = "jpeg",
+        store_images: bool = True,
     ) -> None:
         if view_format not in VIEW_FORMATS:
             raise ValueError(f"view_format must be one of {VIEW_FORMATS}")
         self.view_format = view_format
+        # Served JPEGs are kept for GET by id (REST, the web UI); the training interface hands
+        # each one over at once and keeps none.
+        self._store_images = store_images
         self.actor = check_actor(actor)
         self.viewport_px: Size = check_viewport(viewport_px, profile.viewport_default_px)
         self.session_id = session_id
@@ -592,7 +596,7 @@ class Session:
 
             def apply(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
                 tid = self._next_id("t")
-                if isinstance(served, bytes):
+                if isinstance(served, bytes) and self._store_images:
                     self._images.put(tid, served)
                 rec = ThumbnailRecord(tid, seq, size, um_per_px, pixels, jpeg_hash, pieces)
                 self._thumbs[tid] = rec
@@ -1017,7 +1021,7 @@ class Session:
 
         def apply(seq: int) -> tuple[Observation | None, bytes | RGB | None]:
             vid = self._next_id("v")
-            if isinstance(served, bytes):
+            if isinstance(served, bytes) and self._store_images:
                 self._images.put(vid, served)
             rec = ViewRecord(vid, kind, seq, center, mag, mpp, bbox, size, pixels, jpeg_hash)
             self._views[vid] = rec

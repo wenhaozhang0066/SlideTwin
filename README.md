@@ -202,9 +202,10 @@ with Env("configs/slides/manifest.yaml", "data/slides") as env:
     step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
     step.error  # a rejected action, as REST reports it
 
-with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
-    steps = vec.reset(["c16_fa751c"] * 8)  # one worker process per environment
-    steps = vec.step([{"action": "view"}] * 8)
+if __name__ == "__main__":  # VecEnv spawns its workers: a script needs this guard
+    with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
+        steps = vec.reset(["c16_fa751c"] * 8)  # one worker process per environment
+        steps = vec.step([{"action": "view"}] * 8)
 ```
 
 The environment gives no reward: ground truth never enters a step, and training code scores a

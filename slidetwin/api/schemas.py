@@ -120,7 +120,7 @@ class ViewOut(BaseModel):
     bbox_um: list[float]
     size_px: list[int]
     pixel_sha256: str
-    jpeg_sha256: str
+    jpeg_sha256: str | None = Field(description="Null only in the training interface's arrays.")
     image: ImageRef
 
 
@@ -137,7 +137,7 @@ class ThumbnailOut(BaseModel):
     size_px: list[int]
     um_per_px: list[float]
     pixel_sha256: str
-    jpeg_sha256: str
+    jpeg_sha256: str | None = Field(description="Null only in the training interface's arrays.")
     tissue_pieces: list[TissuePiece]
     image: ImageRef
 

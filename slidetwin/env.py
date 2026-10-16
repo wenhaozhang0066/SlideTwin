@@ -20,18 +20,23 @@ reading itself, for example from the receipt that an accepted report returns, or
 slidetwin.eval against the annotations. Without `log_dir` nothing is written to disk; with it,
 every episode writes the trajectory a web session would, and it can be replayed.
 
-VecEnv runs n environments in worker processes (spawned, so a training script needs the usual
-`if __name__ == "__main__":` guard).
+VecEnv runs n environments in worker processes. They are spawned, so a script that makes a VecEnv
+needs the usual `if __name__ == "__main__":` guard.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import multiprocessing
+import numbers
+import operator
 import os
 import random
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
@@ -42,7 +47,9 @@ from pydantic import BaseModel, ValidationError
 
 from slidetwin.api.payloads import respond
 from slidetwin.api.schemas import (
+    ActionResponse,
     AnnotateRequest,
+    CreateSessionResponse,
     CropRequest,
     EmptyRequest,
     MagnificationRequest,
@@ -73,6 +80,8 @@ ACTIONS: dict[str, tuple[type[BaseModel], tuple[str, ...]]] = {
 }
 IMAGE_FORMATS = ("array", "jpeg")
 VIA_ENV = {"via": "env"}
+MAX_BODY_BYTES = 1_000_000  # REST's default limit of a request body (SLIDETWIN_MAX_BODY_BYTES)
+_PLAIN_DEPTH = 64  # NumPy values nested deeper than this are not converted
 
 
 @dataclass(frozen=True)
@@ -84,8 +93,8 @@ class Step:
         None when the action was rejected.
     error: the rejection (code, message, hint, and for a report its rule violations), as REST
         and MCP report it; None when the action was accepted.
-    image: the pixels the action served: an (h, w, 3) uint8 array, or with image="jpeg" the JPEG
-        that REST and MCP serve. None when it served none.
+    image: the pixels the action served: an (h, w, 3) uint8 array, read-only (copy it to change
+        it), or with image="jpeg" the JPEG that REST and MCP serve. None when it served none.
     state: the session state after the action.
     done: a report was accepted, which closes the session; only get_state is left.
     """
@@ -151,7 +160,7 @@ class Env:
         )
         self.profile, self.protocol, self.actor = profile, protocol, actor
         self.image = image
-        self.viewport = None if viewport is None else (int(viewport[0]), int(viewport[1]))
+        self.viewport = _viewport(viewport)
         self._session: Session | None = None
         self._rng = random.Random()
 
@@ -174,23 +183,22 @@ class Env:
         """End the current session and open `slide_id` (or, without one, a slide chosen by the
         seeded generator: `seed` reseeds it). Returns the first view, the slide, task and rules."""
         if seed is not None:
-            self._rng.seed(seed)
+            self._rng.seed(operator.index(seed))  # NumPy integers too
         if slide_id is None:
             slide_id = self._rng.choice(self.slide_ids)
+        size = _viewport(viewport) if viewport is not None else self.viewport
         self._end()
         session = self._manager.create(
             slide_id=slide_id,
             actor=self.actor,
             profile=self.profile,
             protocol=self.protocol,
-            viewport_px=viewport if viewport is not None else self.viewport,
+            viewport_px=size,
             view_format="array" if self.image == "array" else "jpeg",
+            store_images=False,  # each image is handed over in its step; none is fetched later
         )
         self._session = session
-        step = self._accepted(session, session.initial)
-        assert step.response is not None
-        step.response.update(session.opening())
-        return step
+        return self._accepted(session, session.initial, session.opening())
 
     def step(self, action: Mapping[str, Any]) -> Step:
         """Run one action on the current session."""
@@ -234,20 +242,44 @@ class Env:
             self._manager.end(self._session.session_id)
             self._session = None
 
-    def _accepted(self, session: Session, result: ActionResult) -> Step:
-        response = respond(session, result, False)
+    def _accepted(
+        self, session: Session, result: ActionResult, opening: dict[str, Any] | None = None
+    ) -> Step:
+        """The step of an accepted action: its response as REST and MCP serialise it (through
+        the same response models), without the image, which is in Step.image."""
+        data = respond(session, result, False)
+        model: type[ActionResponse] = ActionResponse
+        if opening is not None:
+            data.update(opening)
+            model = CreateSessionResponse
+        response = model.model_validate(data).model_dump(mode="json")
         if isinstance(response.get("observation"), dict):
-            response["observation"].pop("image", None)  # the pixels are in Step.image
+            response["observation"].pop("image", None)
         image = result.array if self.image == "array" else result.image
+        if isinstance(image, np.ndarray):
+            image.setflags(write=False)  # as it comes from the renderer, and from VecEnv
         return Step(response, None, image, result.state, session.closed)
+
+
+def _viewport(value: Sequence[Any] | None) -> tuple[int, int] | None:
+    """A viewport size: two integers (NumPy ones too), as REST and MCP take it; the session
+    checks the range."""
+    if value is None:
+        return None
+    items = list(value)
+    if len(items) != 2 or not all(
+        isinstance(v, numbers.Integral) and not isinstance(v, bool) for v in items
+    ):
+        raise ValueError(f"viewport must be two integers [width, height], got {value!r}")
+    return int(items[0]), int(items[1])
 
 
 class _Refused(Exception):
     """An action refused before it reaches the session, with the error REST would return."""
 
-    def __init__(self, message: str, hint: str) -> None:
+    def __init__(self, message: str, hint: str = "", code: str = "INVALID_REQUEST") -> None:
         super().__init__(message)
-        self.error = {"code": "INVALID_REQUEST", "message": message, "hint": hint}
+        self.error = {"code": code, "message": message, **({"hint": hint} if hint else {})}
 
 
 def _parse(action: Mapping[str, Any]) -> tuple[str, list[Any], dict[str, Any]]:
@@ -258,7 +290,21 @@ def _parse(action: Mapping[str, Any]) -> tuple[str, list[Any], dict[str, Any]]:
         raise _Refused(f"Unknown action {str(name)[:40]!r}.", f"Use one of: {', '.join(ACTIONS)}.")
     model, fields = ACTIONS[name]
     try:
-        body = model.model_validate({k: _plain(v) for k, v in action.items() if k != "action"})
+        raw = {k: _plain(v) for k, v in action.items() if k != "action"}
+        size = len(json.dumps(raw))
+    except RecursionError:
+        raise _Refused("Invalid request: body: nested too deeply.") from None
+    except (TypeError, ValueError):
+        raise _Refused(
+            "Invalid request: body: not JSON.",
+            "Use numbers, strings, booleans, null, lists and dicts.",
+        ) from None
+    if size > MAX_BODY_BYTES:  # as REST: refused before the session, not logged
+        raise _Refused(
+            f"Request body is larger than {MAX_BODY_BYTES} bytes.", code="PAYLOAD_TOO_LARGE"
+        )
+    try:
+        body = model.model_validate(raw)
     except ValidationError as err:
         first = err.errors()[0]
         where = ".".join(str(p) for p in first.get("loc", ())) or "body"
@@ -273,14 +319,16 @@ def _parse(action: Mapping[str, Any]) -> tuple[str, list[Any], dict[str, Any]]:
     return name, args, {**client, **VIA_ENV} if client else dict(VIA_ENV)
 
 
-def _plain(value: Any) -> Any:
+def _plain(value: Any, depth: int = 0) -> Any:
     """NumPy numbers and arrays as Python numbers and lists, which the strict models accept."""
+    if depth > _PLAIN_DEPTH:
+        return value  # deeper: left as it is; the models and the session judge it
     if isinstance(value, np.generic | np.ndarray):
         return value.tolist()
     if isinstance(value, list | tuple):
-        return [_plain(v) for v in value]
+        return [_plain(v, depth + 1) for v in value]
     if isinstance(value, dict):
-        return {k: _plain(v) for k, v in value.items()}
+        return {k: _plain(v, depth + 1) for k, v in value.items()}
     return value
 
 
@@ -290,15 +338,22 @@ def _plain(value: Any) -> Any:
 class VecEnv:
     """n environments, each in its own worker process with its own slide handles. reset and step
     take and return lists, one item per environment; the workers run their actions in parallel.
-    The keyword arguments are those of Env. A worker that fails reports its error; one that stops
-    makes every later call fail, so close the VecEnv and start a new one."""
+    The keyword arguments are those of Env, plus `timeout_s`: how long a call waits for a worker
+    (None: no limit). An error a worker reports is raised once every worker has answered, and the
+    VecEnv stays usable. After a call that did not finish (a worker stopped or timed out, or the
+    call was interrupted) every later call raises: close the VecEnv and make a new one."""
 
-    def __init__(self, n: int, **env_kwargs: Any) -> None:
-        if not isinstance(n, int) or n < 1:
+    def __init__(self, n: int, *, timeout_s: float | None = None, **env_kwargs: Any) -> None:
+        n = operator.index(n)  # NumPy integers too
+        if n < 1:
             raise ValueError("n must be a positive integer")
+        if timeout_s is not None and not timeout_s > 0:
+            raise ValueError("timeout_s must be positive, or None for no limit")
+        self._timeout_s = timeout_s
+        self._broken: str | None = None
         context = multiprocessing.get_context("spawn")
-        self._conns = []
-        self._procs = []
+        self._conns: list[Any] = []
+        self._procs: list[Any] = []
         try:
             for _ in range(n):
                 ours, theirs = context.Pipe()
@@ -307,7 +362,9 @@ class VecEnv:
                 theirs.close()
                 self._conns.append(ours)
                 self._procs.append(proc)
-            self._gather()  # each worker reports once its Env is built
+            _, problems = self._gather()  # each worker reports once its Env is built
+            if problems:
+                raise RuntimeError(" ".join(problems))
         except BaseException:
             self.close()
             raise
@@ -327,17 +384,20 @@ class VecEnv:
         ids = list(slide_ids) if slide_ids is not None else [None] * len(self)
         if len(ids) != len(self):
             raise ValueError(f"expected {len(self)} slide ids, got {len(ids)}")
-        for i in range(len(self)):
-            self._send(i, ("reset", ids[i], None if seed is None else seed + i, viewport))
-        steps: list[Step] = self._gather()
+        base = None if seed is None else operator.index(seed)
+        size = _viewport(viewport)
+        messages = [
+            ("reset", ids[i], None if base is None else base + i, size) for i in range(len(self))
+        ]
+        steps: list[Step] = self._call(messages)
         return steps
 
-    def step(self, actions: Sequence[Mapping[str, Any]]) -> list[Step]:
+    def step(self, actions: Sequence[Any]) -> list[Step]:
+        """One action per environment; an action that is not a dict is refused by its Env, as
+        Env.step refuses it."""
         if len(actions) != len(self):
             raise ValueError(f"expected {len(self)} actions, got {len(actions)}")
-        for i, action in enumerate(actions):
-            self._send(i, ("step", dict(action)))
-        steps: list[Step] = self._gather()
+        steps: list[Step] = self._call([("step", action) for action in actions])
         return steps
 
     def close(self) -> None:
@@ -364,30 +424,52 @@ class VecEnv:
     ) -> None:
         self.close()
 
-    def _send(self, i: int, message: tuple[Any, ...]) -> None:
+    def _call(self, messages: list[tuple[Any, ...]]) -> list[Any]:
+        """Send one message to each worker and read every answer. Each message is pickled before
+        any is sent, so one that cannot be is refused with nothing sent."""
+        if self._broken is not None:
+            raise RuntimeError(self._broken)
+        payloads = [bytes(ForkingPickler.dumps(message)) for message in messages]
         try:
-            self._conns[i].send(message)
+            for i, payload in enumerate(payloads):
+                self._send(i, payload)
+            answers, problems = self._gather()
+        except BaseException as err:
+            self._broken = (
+                f"An earlier call to this VecEnv did not finish ({type(err).__name__}: {err}); "
+                "close it and make a new one."
+            )
+            raise
+        if problems:
+            raise RuntimeError(" ".join(problems))
+        return answers
+
+    def _send(self, i: int, payload: bytes) -> None:
+        try:
+            self._conns[i].send_bytes(payload)
         except OSError:
             raise RuntimeError(self._stopped(i)) from None
 
-    def _gather(self) -> list[Any]:
-        """One answer per worker. Every answer is read before an error or a stopped worker
-        raises, so the next call does not read a stale one."""
-        out: list[Any] = []
+    def _gather(self) -> tuple[list[Any], list[str]]:
+        """Every worker's answer and the errors the workers reported. A worker that stopped, or
+        that has not answered when the call's time is up (it is killed), raises."""
+        deadline = None if self._timeout_s is None else time.monotonic() + self._timeout_s
+        answers: list[Any] = []
         problems = []
         for i, conn in enumerate(self._conns):
+            if deadline is not None and not conn.poll(max(0.0, deadline - time.monotonic())):
+                self._procs[i].kill()
+                raise RuntimeError(f"Environment {i} did not answer within {self._timeout_s:g} s.")
             try:
                 status, value = conn.recv()
             except (EOFError, OSError):
-                problems.append(self._stopped(i))
-                out.append(None)
-                continue
+                raise RuntimeError(self._stopped(i)) from None
             if status != "ok":
                 problems.append(f"Environment {i} failed: {value}")
-            out.append(value)
-        if problems:
-            raise RuntimeError(" ".join(problems))
-        return out
+            elif isinstance(value, Step) and isinstance(value.image, np.ndarray):
+                value.image.setflags(write=False)  # read-only, as from a plain Env
+            answers.append(value)
+        return answers, problems
 
     def _stopped(self, i: int) -> str:
         self._procs[i].join(1)

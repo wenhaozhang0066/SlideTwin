@@ -107,9 +107,11 @@ class SessionManager:
         protocol: str = "sln_metastasis",
         viewport_px: Sequence[int] | None = None,
         view_format: str = "jpeg",
+        store_images: bool = True,
     ) -> Session:
-        """A new session. `view_format` "array" serves RGB arrays instead of stored JPEGs (the
-        training interface; REST and MCP always serve JPEGs)."""
+        """A new session. `view_format` "array" serves RGB arrays instead of JPEGs, and without
+        `store_images` no served JPEG is kept for later GETs (both for the training interface;
+        REST and MCP always serve and keep JPEGs)."""
         prof: Profile = self._lookup(self.configs.profile, profile)
         proto: Protocol = self._lookup(self.configs.protocol, protocol)
         check_actor(actor)
@@ -151,6 +153,7 @@ class SessionManager:
                 viewport_px=viewport_px,
                 log_path=self._log_path(session_id),
                 view_format=view_format,
+                store_images=store_images,
             )
         except BaseException:
             images.discard()

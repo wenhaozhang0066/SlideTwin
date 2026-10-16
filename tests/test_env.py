@@ -19,7 +19,7 @@ from PIL import Image
 
 from slidetwin.api.main import create_app
 from slidetwin.api.settings import Settings
-from slidetwin.core.errors import ConfigError
+from slidetwin.core.errors import ConfigError, ImageNotFound
 from slidetwin.core.images import pixel_sha256
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.replay import replay
@@ -87,8 +87,8 @@ def normalised(text: str) -> list[Any]:
     return [strip(json.loads(line)) for line in text.splitlines()]
 
 
-def rest_reading(slides: Path, tmp_path: Path) -> str:
-    settings = Settings(
+def rest_settings(slides: Path, tmp_path: Path) -> Settings:
+    return Settings(
         config_dir=CONFIG_DIR,
         manifest=slides / "manifest.yaml",
         slide_dir=slides,
@@ -96,7 +96,10 @@ def rest_reading(slides: Path, tmp_path: Path) -> str:
         cache_dir=None,
         allowed_hosts=("testserver",),
     )
-    with TestClient(create_app(settings)) as client:
+
+
+def rest_reading(slides: Path, tmp_path: Path) -> str:
+    with TestClient(create_app(rest_settings(slides, tmp_path))) as client:
         body = {"slide_id": "syn40", "actor": "agent:env", "viewport_px": [512, 384]}
         sid = client.post("/api/sessions", json=body).json()["session_id"]
         for action in SCRIPT:
@@ -178,14 +181,23 @@ def test_requests_rest_refuses_are_refused_and_not_logged(
         assert env.session.history == before
 
 
-def test_jpeg_steps_serve_what_rest_serves(slides: Path) -> None:
+def test_jpeg_steps_serve_what_rest_serves(slides: Path, tmp_path: Path) -> None:
     with make_env(slides, image="jpeg") as env:
         first = env.reset("syn40")
+        moved = env.step({"action": "set_magnification", "mag": 10})
         assert isinstance(first.image, bytes)
-        view_id = first.response["observation"]["view_id"] if first.response else ""
-        assert env.session is not None
-        assert first.image == env.session.get_image(view_id)
         assert Image.open(io.BytesIO(first.image)).size == (512, 384)
+        assert env.session is not None
+        view_id = first.response["observation"]["view_id"] if first.response else ""
+        with pytest.raises(ImageNotFound):  # nothing is kept: each JPEG is in its step
+            env.session.get_image(view_id)
+    with TestClient(create_app(rest_settings(slides, tmp_path))) as client:
+        body = {"slide_id": "syn40", "actor": "agent:env", "viewport_px": [512, 384]}
+        created = client.post("/api/sessions", json=body).json()
+        url = f"/api/sessions/{created['session_id']}/magnification"
+        mag = client.post(url, json={"mag": 10}).json()
+        served = [client.get(r["observation"]["image"]["url"]).content for r in (created, mag)]
+    assert served == [first.image, moved.image]
 
 
 def test_reset_ends_the_previous_session_and_seeds_the_slide_choice(slides: Path) -> None:
@@ -342,3 +354,128 @@ def test_the_worker_loop(slides: Path) -> None:
     ours, theirs = Pipe()  # an Env that cannot be built is reported
     _work(theirs, {**kwargs, "cache_dir": "", "profile": "nope"})
     assert ours.recv()[0] == "error"
+
+
+def test_steps_are_serialised_like_rest_and_their_arrays_are_read_only(slides: Path) -> None:
+    with make_env(slides) as env:
+        first = env.reset("syn40")
+        assert isinstance(first.image, np.ndarray)
+        assert not first.image.flags.writeable  # copy it to change it
+        assert first.response is not None
+        assert first.response["observation"]["jpeg_sha256"] is None
+        receipt = env.step({"action": "submit_report", "report": EXAMPLE}).response
+        assert receipt is not None
+        checks = receipt["observation"]["rule_checks"]
+        assert all("claim_id" in check for check in checks)  # as the REST response model adds
+
+
+def test_numpy_integers_and_refused_sizes(slides: Path) -> None:
+    with make_env(slides, viewport=np.array([256, 192])) as env:
+        assert env.reset("syn40", seed=np.int64(3)).image.shape == (192, 256, 3)  # type: ignore[union-attr]
+        size = (np.int64(320), np.int32(240))
+        assert env.reset("syn20", viewport=size).state["viewport_px"] == [320, 240]
+        for bad in ((512.9, 384.7), ("512", "384"), (True, 384), (512,)):
+            with pytest.raises(ValueError, match="viewport must be two integers"):
+                env.reset("syn40", viewport=bad)
+    with pytest.raises(ValueError, match="viewport must be two integers"):
+        make_env(slides, viewport=(512.9, 384.7))
+
+
+def nested(depth: int) -> Any:
+    value: Any = "x"
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+@pytest.mark.parametrize(
+    ("action", "code", "message"),
+    [
+        (
+            {"action": "annotate", "geometry": POLYGON, "label": "x", "note": "y" * 1_000_001},
+            "PAYLOAD_TOO_LARGE",
+            "Request body is larger than 1000000 bytes.",
+        ),
+        (
+            {"action": "submit_report", "report": {"deep": nested(50_000)}},
+            "INVALID_REQUEST",
+            "nested",
+        ),
+        ({"action": "pan", "dx": {1, 2}, "dy": 0}, "INVALID_REQUEST", "not JSON"),
+    ],
+)
+def test_bodies_rest_could_not_send_are_refused_before_the_session(
+    slides: Path, action: dict[str, Any], code: str, message: str
+) -> None:
+    with make_env(slides) as env:
+        env.reset("syn40")
+        assert env.session is not None
+        before = env.session.history
+        step = env.step(action)
+        assert step.error is not None
+        assert step.error["code"] == code
+        assert message in step.error["message"]
+        assert env.session.history == before  # not logged, as REST does not log them
+
+
+def test_a_deep_report_is_judged_by_the_session(slides: Path) -> None:
+    with make_env(slides) as env:
+        env.reset("syn40")
+        step = env.step({"action": "submit_report", "report": {"conclusion": nested(100)}})
+        assert step.error is not None
+        assert step.error["code"] == "REPORT_INVALID"  # logged, as REST logs it
+
+
+def test_vec_env_refuses_an_unpicklable_action_before_sending_anything(slides: Path) -> None:
+    kwargs = {"config_dir": CONFIG_DIR, "cache_dir": "", "viewport": (256, 256)}
+    with VecEnv(2, manifest=slides / "manifest.yaml", slide_dir=slides, **kwargs) as vec:
+        vec.reset(["syn40", "syn40"])
+        with pytest.raises(Exception, match=r"local object|pickle"):
+            vec.step([SCRIPT[1], {"action": "pan", "dx": lambda: 0, "dy": 0}])
+        steps = vec.step([{"action": "set_magnification", "mag": 20}, None])
+        assert steps[0].state["mag"] == 20  # in step: not the answer of the refused call
+        assert steps[1].error is not None
+        assert steps[1].error["code"] == "INVALID_REQUEST"  # refused by its Env, as Env does
+        assert vec.step([{"action": "get_state"}] * 2)[0].response["action"] == "get_state"  # type: ignore[index]
+        assert not any(s.image is not None and s.image.flags.writeable for s in vec.reset())  # type: ignore[union-attr]
+
+
+def test_vec_env_breaks_after_an_unfinished_call(
+    slides: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kwargs = {"config_dir": CONFIG_DIR, "cache_dir": "", "viewport": (256, 256)}
+    vec = VecEnv(2, manifest=slides / "manifest.yaml", slide_dir=slides, **kwargs)
+    try:
+        vec.reset(["syn40", "syn40"])
+
+        def interrupted() -> Any:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(vec._conns[1], "recv", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            vec.step([{"action": "view"}] * 2)
+        with pytest.raises(RuntimeError, match="did not finish \\(KeyboardInterrupt"):
+            vec.step([{"action": "view"}] * 2)
+    finally:
+        vec.close()
+    with pytest.raises(ValueError, match="timeout_s"):
+        VecEnv(1, timeout_s=0)
+
+
+def test_vec_env_times_out_a_silent_worker(slides: Path) -> None:
+    kwargs = {"config_dir": CONFIG_DIR, "cache_dir": ""}
+    vec = VecEnv(
+        np.int64(1), timeout_s=5.0, manifest=slides / "manifest.yaml", slide_dir=slides, **kwargs
+    )
+    try:
+        vec.reset(["syn40"])
+        pid = vec._procs[0].pid
+        assert pid is not None
+        os.kill(pid, signal.SIGSTOP)  # it never answers
+        vec._timeout_s = 0.5
+        with pytest.raises(RuntimeError, match=r"did not answer within 0\.5 s"):
+            vec.step([{"action": "view"}])
+        with pytest.raises(RuntimeError, match="did not finish"):
+            vec.reset()
+    finally:
+        vec.close()
