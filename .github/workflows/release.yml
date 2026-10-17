@@ -1,0 +1,53 @@
+name: release
+
+# A tag v<version> builds the sdist and the wheel, checks them and the repository, and publishes
+# them to PyPI through trusted publishing (no token: the PyPI project trusts this workflow, which
+# the owner sets up once on pypi.org; see docs/RELEASE.md).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole history, for the repository check
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag names the package version
+        run: |
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('slidetwin/__init__.py').read())[1])")
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "tag $GITHUB_REF_NAME, version $version"; exit 1; }
+      - name: No internal paths, secrets or data in the repository or its history
+        run: python scripts/check_repo.py --history
+      - name: Build the sdist, and the wheel from it
+        run: |
+          pip install build twine
+          python -m build
+          twine check --strict dist/*
+      - name: Install the wheel in a fresh environment and use it outside the repository
+        run: bash scripts/smoke_wheel.sh dist/slidetwin-*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

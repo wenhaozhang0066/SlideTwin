@@ -37,15 +37,18 @@ every package it installs, transitive ones included, written by `scripts/third_p
   locally with a reader plugin (`slidetwin/readers/plugins.py`), which SlideTwin does not ship.
 - Slide data has its own terms: [DATA_LICENSES.md](DATA_LICENSES.md).
 
-## Before publishing the image
+## What the image adds
 
-The repository and pip installs redistribute nothing. A published Docker image does, and two
-points are open (found in the M9 review; the owner decides):
+The repository and pip installs redistribute nothing. The Docker image does, so it carries more:
 
-- Rust crates compiled into pydantic-core, rpds-py and cryptography (MIT, Apache-2.0 and
-  Unicode-3.0 terms), and the OpenSSL that cryptography links in, come without their notices in
-  those wheels. They can be generated from each package's `Cargo.lock` (for example with
-  cargo-about) and added to `third_party/`.
-- libquadmath (LGPL-2.1-or-later), bundled by the numpy and scipy wheels, is shipped with notices
-  that point to the GCC sources but without those sources. Strict compliance needs the matching
-  GCC source in the image, or a written offer to provide it.
+- `/usr/share/slidetwin/THIRD_PARTY_NOTICES.txt`: the licence files of every installed package and
+  the notices in `third_party/` (libisyntax and what it bundles; CRC32C).
+- `/usr/share/slidetwin/RUST_NOTICES.txt`: the licence files of the Rust crates compiled into
+  pydantic-core, rpds-py, cryptography and imagecodecs, written at build time by
+  `scripts/rust_notices.py` from each package's Cargo.lock (sdist from PyPI, crates from
+  crates.io, all sha256-checked), with the OpenSSL that cryptography links in.
+- `/usr/share/slidetwin/sources/`: the source of OpenSlide (openslide-bin archive), of
+  openslide-python, and of libquadmath from GCC 8.5.0 and 4.8.5 (`third_party/sources/`). The
+  libquadmath versions are inferred from the bundled libraries' symbol versions
+  ([third_party/sources/README.md](../third_party/sources/README.md)); for an image that must be
+  beyond doubt, the owner can add a written offer of the source as well.

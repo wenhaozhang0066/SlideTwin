@@ -8,6 +8,7 @@
 !configs/
 !third_party/
 !scripts/third_party_notices.py
+!scripts/rust_notices.py
 !scripts/fetch_checked.py
 **/__pycache__
 **/*.pyc
