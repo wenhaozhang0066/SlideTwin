@@ -34,17 +34,15 @@ polygon and the report receipt](docs/media/reading.gif)
 | M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; demo in GitHub Codespaces |
 | M8 | Every common WSI format: content-based router, readers, file sets, provenance | done |
 | M10 | A small demo: three public slides, 0.9 GB | done |
-| M9 | pip package, `slidetwin` command, Python training interface | done; on PyPI at the open-source release |
+| M9 | pip package, `slidetwin` command, Python training interface | done; on PyPI |
 
 ## Install and run
 
-SlideTwin needs Python 3.12 or later on Linux. Until the open-source release puts it on PyPI,
-install it from a checkout:
+SlideTwin needs Python 3.12 or later on Linux.
 
 ```bash
-git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
 python3 -m venv .venv && . .venv/bin/activate
-pip install ".[all]"        # with every reader
+pip install "slidetwin[all]"        # with every reader
 ```
 
 The `slidetwin` command:
@@ -75,6 +73,7 @@ package; `SLIDETWIN_CONFIG_DIR` or a `configs/` folder in the working directory 
 ## Development
 
 ```bash
+git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
 pip install -e ".[dev]"
 python scripts/fetch_test_data.py           # five small CC0 test slides (11 MB) in data/testdata
 pytest -q
@@ -94,7 +93,7 @@ SlideTwin picks the reader from the file's content. A format without a reader it
 refused with a message that says how to convert the slide; it never guesses. "Experimental" formats
 were checked on synthetic files only and are served when the slide's manifest entry sets
 `experimental: true`. Readers marked (openslide), (slideio) or (isyntax) need that extra, e.g.
-`pip install ".[openslide]"` in a checkout; `".[all]"` installs them all.
+`pip install "slidetwin[openslide]"`; `"slidetwin[all]"` installs them all.
 
 | Format | Files | Served | Refused or experimental |
 |---|---|---|---|
@@ -188,7 +187,7 @@ python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_s
 python -m slidetwin.agents random --env http://localhost:7860 --transport mcp --slide cmu1_small
 python -m slidetwin.agents crop --env http://localhost:7860 --slide cmu1_small   # unconstrained profile
 
-# a vision LLM: the Anthropic API (pip install ".[llm]"; ANTHROPIC_API_KEY or `ant auth login`) ...
+# a vision LLM: the Anthropic API (pip install "slidetwin[llm]"; ANTHROPIC_API_KEY or `ant auth login`) ...
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small --out reading.jsonl
 # ... or any OpenAI-compatible endpoint, e.g. a local vLLM
 python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000/v1 \

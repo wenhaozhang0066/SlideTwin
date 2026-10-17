@@ -58,3 +58,10 @@ def test_what_the_history_check_finds(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "an Anthropic or OpenAI key" in history  # in a message
     assert "a private pattern" in history
     assert "noreply" not in history  # GitHub's private addresses are fine
+
+
+def test_the_maintainers_address_is_fine() -> None:
+    module = check_repo()
+    assert list(module.scan_bytes(b'email: "bdu8us@virginia.edu"\n', "CITATION.cff")) == []
+    other = b"email: bob" + b"@virginia.edu\n"  # joined at run time, as above
+    assert list(module.scan_bytes(other, "x")) == ["x:1: an e-mail address"]

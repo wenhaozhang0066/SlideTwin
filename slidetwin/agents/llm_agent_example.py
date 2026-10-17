@@ -6,7 +6,7 @@ any outside agent, so its whole reading is logged and replayable.
 
 Backends. Keys come from the environment only, never from files in the repository:
 
-- `anthropic`: the Anthropic API through the official SDK (`pip install -e ".[llm]"`), model
+- `anthropic`: the Anthropic API through the official SDK (`pip install "slidetwin[llm]"`), model
   `claude-opus-5-5` by default. Credentials: `ANTHROPIC_API_KEY` or an `ant auth login` profile.
   Refused requests are retried server-side on Anthropic's recommended fallback model.
 - `openai`: any OpenAI-compatible chat endpoint, e.g. a local vLLM serving a vision model
@@ -226,7 +226,7 @@ class AnthropicChat:
         client: Any = None,
     ) -> None:
         if client is None:
-            import anthropic  # optional dependency: pip install -e ".[llm]"
+            import anthropic  # optional dependency: pip install "slidetwin[llm]"
 
             client = anthropic.AsyncAnthropic()
         self.client = client

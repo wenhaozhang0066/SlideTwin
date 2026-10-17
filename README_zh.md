@@ -30,16 +30,15 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；demo 在 GitHub Codespaces 运行 |
 | M8 | 常见 WSI 格式全覆盖：按内容选读取器、各格式读取器、多文件切片、来源记录 | 完成 |
 | M10 | 小型 demo：三张公开切片，共 0.9 GB | 完成 |
-| M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 完成；开源时发布到 PyPI |
+| M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 完成；已发布到 PyPI |
 
 ## 安装与运行
 
-需要 Python 3.12 或更高版本，运行在 Linux 上。开源发布到 PyPI 之前，请从仓库安装：
+需要 Python 3.12 或更高版本，运行在 Linux 上。
 
 ```bash
-git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
 python3 -m venv .venv && . .venv/bin/activate
-pip install ".[all]"        # 含全部读取器
+pip install "slidetwin[all]"        # 含全部读取器
 ```
 
 `slidetwin` 命令：
@@ -61,6 +60,7 @@ slidetwin fetch --demo                              # 只下载
 ## 开发
 
 ```bash
+git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
 pip install -e ".[dev]"
 python scripts/fetch_test_data.py           # 五个 CC0 小测试切片（11 MB），存到 data/testdata
 pytest -q
@@ -74,7 +74,7 @@ uvicorn slidetwin.api.main:app --reload --port 7860 --no-access-log
 
 ## 切片格式
 
-SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide)、(slideio) 或 (isyntax) 的需要先安装对应扩展，例如在仓库目录里 `pip install ".[openslide]"`；`".[all]"` 安装全部扩展。
+SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide)、(slideio) 或 (isyntax) 的需要先安装对应扩展，例如 `pip install "slidetwin[openslide]"`；`"slidetwin[all]"` 安装全部扩展。
 
 | 格式 | 文件 | 支持 | 拒绝或实验性 |
 |---|---|---|---|
@@ -114,7 +114,7 @@ claude mcp add --transport http slidetwin http://localhost:7860/mcp
 
 ```bash
 python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
-python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install ".[llm]"，以及 ANTHROPIC_API_KEY 或 `ant auth login`
+python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install "slidetwin[llm]"，以及 ANTHROPIC_API_KEY 或 `ant auth login`
 ```
 
 ## 训练接口

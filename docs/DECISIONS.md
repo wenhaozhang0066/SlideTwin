@@ -1105,12 +1105,23 @@ The owner asked for everything that can be done before the release. Done:
   versions (GFORTRAN_8, QUADMATH_1.1 and 1.0): GCC 8.5.0 and 4.8.5. Their `libquadmath` folders,
   taken from the GNU-signed release archives, are in `third_party/sources/` and in the image.
 - **Package metadata** (URLs, keywords, classifiers); `twine check --strict` passes; the README's
-  links are absolute, so they work on PyPI; the Space's YAML header moved to
-  `deploy/hf_space_readme_header.md`, so GitHub and PyPI show the README as text. `slidetwin` is
-  still free on PyPI and TestPyPI, and pip-audit finds no known vulnerability in the image's
-  packages.
+  relative links are made absolute in the PyPI description at build time; the Space's YAML header
+  moved to `deploy/hf_space_readme_header.md`, so GitHub and PyPI show the README as text.
+  `slidetwin` is still free on PyPI and TestPyPI, and pip-audit finds no known vulnerability in the
+  image's packages.
 - **Release workflow** (`.github/workflows/release.yml`): a tag publishes through PyPI trusted
   publishing after the tag, history, dists and installed-wheel checks.
 - **A clean history**, prepared outside the repository (the rewrite rules name the internal path).
-- **Steps only the owner can take**: [RELEASE.md](RELEASE.md).
+- **Release steps**: [RELEASE.md](RELEASE.md).
+
+## Release 0.1.0 (2026-10-17)
+
+- **Public repository.** `wenhaozhang0066/SlideTwin`, published from the clean history; the
+  development repository stays private. The working rules for AI coding tools are in `AGENTS.md`.
+- **Authors.** Wenhao Zhang (University of Virginia), contact bdu8us@virginia.edu, in CITATION.cff
+  and the package metadata; `scripts/check_repo.py` accepts that one address.
+- **PyPI.** `slidetwin` 0.1.0, published by the release workflow through trusted publishing
+  (environment `pypi`).
+- **Hugging Face Space.** `eric-1w/SlideTwin` was deleted: it never started (quota 0, see
+  "Codespaces demo") and held an old version. The demo runs in GitHub Codespaces.
 

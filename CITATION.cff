@@ -3,7 +3,10 @@ message: "If you use SlideTwin, please cite it as below."
 title: "SlideTwin: an agent-operable whole-slide image viewer simulator"
 type: software
 authors:
-  - name: "SlideTwin contributors"
+  - family-names: "Zhang"
+    given-names: "Wenhao"
+    affiliation: "University of Virginia"
+    email: "bdu8us@virginia.edu"
 version: 0.1.0
 license: Apache-2.0
 repository-code: "https://github.com/wenhaozhang0066/SlideTwin"

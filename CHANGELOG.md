@@ -2,7 +2,7 @@
 
 Versions follow semantic versioning from 1.0; until then, any release may change interfaces.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-17)
 
 - Core engine: geometry, slide access, sessions with virtual-time costs, a ledger, trajectories
   and bit-exact replay (M1).

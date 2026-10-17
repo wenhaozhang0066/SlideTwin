@@ -33,9 +33,12 @@ PATTERNS = {
     "a private key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "an e-mail address": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 }
-# Addresses that are fine: GitHub's private commit addresses and examples.
+# Addresses that are fine: GitHub's private commit addresses, examples, and the maintainer's contact
+# address (CITATION.cff, pyproject.toml).
 EMAIL_OK = re.compile(
-    r"@users\.noreply\.github\.com$|@example\.(?:com|org|net)$|\.test$|@localhost$", re.I
+    r"@users\.noreply\.github\.com$|@example\.(?:com|org|net)$|\.test$|@localhost$"
+    r"|^bdu8us@virginia\.edu$",
+    re.I,
 )
 # Slide, image, annotation and label data never belong here; the docs' few pictures do.
 DATA_SUFFIXES = (".svs", ".ndpi", ".mrxs", ".dcm", ".czi", ".bif", ".vsi", ".isyntax", ".scn")
