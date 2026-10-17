@@ -16,22 +16,6 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 
 ![在网页界面里阅读 CC0 测试切片：总览、放大倍数快捷键、一次测量、一个多边形标注和报告回执](docs/media/reading.gif)
 
-## 进度
-
-| 里程碑 | 内容 | 状态 |
-|---|---|---|
-| M0 | 脚手架、工具链、CI、健康检查端点 | 完成 |
-| M1 | 核心引擎：几何、切片读取、会话、账本、轨迹与重放 | 完成 |
-| M2 | 覆盖规格书第 7 节全部动作的 REST API | 完成 |
-| M5 | 规则检查 E1–E4、组织覆盖率、advisory 与 enforced 两种模式 | 完成 |
-| M3 | 网页阅片界面（键盘与鼠标均可操作，中英文） | 完成 |
-| M4 | `/mcp` 上的 MCP 工具；蛇形、随机、裁剪与 LLM agent | 完成 |
-| M6 | 病灶指标、轨迹图、规则档对比、评测报告 | 完成 |
-| M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；demo 在 GitHub Codespaces 运行 |
-| M8 | 常见 WSI 格式全覆盖：按内容选读取器、各格式读取器、多文件切片、来源记录 | 完成 |
-| M10 | 小型 demo：三张公开切片，共 0.9 GB | 完成 |
-| M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 完成；已发布到 PyPI |
-
 ## 安装与运行
 
 需要 Python 3.12 或更高版本，运行在 Linux 上。
@@ -173,6 +157,22 @@ if __name__ == "__main__":  # VecEnv 的工作进程会导入这个脚本：所�
 ## 数据
 
 本仓库不包含任何切片、患者数据或公司数据。切片从 `SLIDETWIN_SLIDE_DIR` 读取，并在清单中列出（`configs/slides/demo.yaml`、`configs/slides/manifest.yaml`）。
+
+## 引用
+
+如果你的工作用到了 SlideTwin，请引用：
+
+```bibtex
+@software{zhang2026slidetwin,
+  author  = {Zhang, Wenhao and Zhou, Zhongliang and Li, Sheng},
+  title   = {SlideTwin: an agent-operable whole-slide image viewer simulator},
+  year    = {2026},
+  version = {0.1.1},
+  url     = {https://github.com/wenhaozhang0066/SlideTwin}
+}
+```
+
+[CITATION.cff](CITATION.cff) 中是同一条引用（即 GitHub 页面上的 “Cite this repository”）。
 
 ## 许可
 

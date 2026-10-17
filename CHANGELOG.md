@@ -8,6 +8,9 @@ Versions follow semantic versioning from 1.0; until then, any release may change
   showed `unconstrained` first (profiles are listed in alphabetical order).
 - README: the vLLM settings the LLM agent needs (tool calls, images per request), tested with
   Qwen3-VL-8B-Instruct.
+- Citation: the READMEs give a BibTeX entry, and CITATION.cff and the package metadata list the
+  three authors (Wenhao Zhang, Zhongliang Zhou, Sheng Li).
+- README: the development status table is removed.
 
 ## 0.1.0 (2026-10-17)
 

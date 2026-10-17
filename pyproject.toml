@@ -9,7 +9,8 @@ description = "Agent-operable digital pathology viewer simulator (research proto
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-authors = [{ name = "Wenhao Zhang", email = "bdu8us@virginia.edu" }]
+authors = [{ name = "Wenhao Zhang" }, { name = "Zhongliang Zhou" }, { name = "Sheng Li" }]
+maintainers = [{ name = "Wenhao Zhang", email = "bdu8us@virginia.edu" }]
 keywords = ["digital pathology", "whole-slide image", "agents", "simulator", "MCP", "reinforcement learning"]
 classifiers = [
   "Development Status :: 3 - Alpha",

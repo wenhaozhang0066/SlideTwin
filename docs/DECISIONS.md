@@ -1135,4 +1135,8 @@ The owner asked for everything that can be done before the release. Done:
   through the LLM agent's OpenAI-compatible backend: about 5 s and 8-10 model turns per slide, every
   reading replayed with 0 differences. It needs `--enable-auto-tool-choice --tool-call-parser
   hermes` and an image limit per request, since the agent sends every view so far (README).
+- **Authors and citation.** The owner added Zhongliang Zhou (Merck) and Sheng Li (University of
+  Virginia) as authors. README, README_zh, CITATION.cff and the package metadata carry the same
+  reference, and the project blog uses the same BibTeX entry. The milestone table left the READMEs;
+  this log keeps the history.
 

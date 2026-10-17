@@ -20,22 +20,6 @@ polygon and the report receipt](docs/media/reading.gif)
 
 中文说明见 [README_zh.md](README_zh.md).
 
-## Status
-
-| Milestone | Content | State |
-|---|---|---|
-| M0 | Scaffold, tooling, CI, health endpoint | done |
-| M1 | Core engine: geometry, slide access, session, ledger, trajectory, replay | done |
-| M2 | REST API for every action in SPEC section 7 | done |
-| M5 | Rule checks E1-E4, tissue coverage, enforced and advisory protocols | done |
-| M3 | Web reading UI (keyboard and pointer, English and Chinese) | done |
-| M4 | MCP tools at `/mcp`; serpentine, random, crop and LLM agents | done |
-| M6 | Lesion metrics, trajectory pictures, profile comparison, evaluation report | done |
-| M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; demo in GitHub Codespaces |
-| M8 | Every common WSI format: content-based router, readers, file sets, provenance | done |
-| M10 | A small demo: three public slides, 0.9 GB | done |
-| M9 | pip package, `slidetwin` command, Python training interface | done; on PyPI |
-
 ## Install and run
 
 SlideTwin needs Python 3.12 or later on Linux.
@@ -339,6 +323,22 @@ No slides, patient data or company data are stored in this repository. Slides ar
 `SLIDETWIN_SLIDE_DIR` and listed in a manifest (`configs/slides/demo.yaml`,
 `configs/slides/manifest.yaml`). Each public slide's source and license are recorded in
 [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md).
+
+## Citation
+
+If you use SlideTwin in your work, please cite it:
+
+```bibtex
+@software{zhang2026slidetwin,
+  author  = {Zhang, Wenhao and Zhou, Zhongliang and Li, Sheng},
+  title   = {SlideTwin: an agent-operable whole-slide image viewer simulator},
+  year    = {2026},
+  version = {0.1.1},
+  url     = {https://github.com/wenhaozhang0066/SlideTwin}
+}
+```
+
+[CITATION.cff](CITATION.cff) holds the same reference (GitHub's "Cite this repository").
 
 ## License
 
