@@ -1,12 +1,11 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=24.1"]
 build-backend = "hatchling.build"
 
 [project]
 name = "slidetwin"
-dynamic = ["version"]
+dynamic = ["version", "readme"]
 description = "Agent-operable digital pathology viewer simulator (research prototype, not for clinical use)"
-readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -78,6 +77,22 @@ dev = [
 
 [tool.hatch.version]
 path = "slidetwin/__init__.py"
+
+# The README for PyPI: the repository's README.md with its relative links made absolute (GitHub
+# shows the relative ones, PyPI cannot resolve them).
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((docs/media/[^)\s]+)\)'
+replacement = '](https://raw.githubusercontent.com/wenhaozhang0066/SlideTwin/main/\1)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
+replacement = '](https://github.com/wenhaozhang0066/SlideTwin/blob/main/\1)'
 
 [tool.hatch.build.targets.wheel]
 # The profiles, protocols and public manifests travel with the code, as slidetwin/configs. Unlike

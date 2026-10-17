@@ -1,17 +1,6 @@
----
-title: SlideTwin
-emoji: 🔬
-colorFrom: gray
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
-license: apache-2.0
-short_description: Agent-operable digital pathology viewer simulator (research)
-startup_duration_timeout: 1h
----
-
 # SlideTwin
+
+[![CI](https://github.com/wenhaozhang0066/SlideTwin/actions/workflows/ci.yml/badge.svg)](https://github.com/wenhaozhang0066/SlideTwin/actions/workflows/ci.yml)
 
 > **Research prototype. Not for clinical use or diagnosis.**
 
@@ -27,9 +16,9 @@ It supports three kinds of experiments:
 - **Spatial measurement:** sizes and distances must be measured on the physical scale.
 
 ![A reading of the CC0 test slide in the web UI: overview, magnification keys, a measurement, a
-polygon and the report receipt](https://raw.githubusercontent.com/wenhaozhang0066/SlideTwin/main/docs/media/reading.gif)
+polygon and the report receipt](docs/media/reading.gif)
 
-中文说明见 [README_zh.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/README_zh.md).
+中文说明见 [README_zh.md](README_zh.md).
 
 ## Status
 
@@ -220,7 +209,7 @@ CAMELYON16 slide, one environment ran 32 actions per second and eight workers 18
 ## Evaluation
 
 Offline tools in `slidetwin/eval` score readings against the CAMELYON annotations, which are used
-for evaluation only. The demo report is in [docs/EVALUATION.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/EVALUATION.md).
+for evaluation only. The demo report is in [docs/EVALUATION.md](docs/EVALUATION.md).
 
 ```bash
 python -m slidetwin.eval convert --xml-dir /path/to/CAMELYON16/annotations
@@ -245,10 +234,10 @@ docker run -p 7860:7860 -e SLIDETWIN_FETCH_SLIDES=0 \
 
 The demo's slides (`configs/slides/demo.yaml`) are a small CC0 sample and two CAMELYON16
 lymph-node slides, one negative and one with a micro-metastasis. `configs/slides/manifest.yaml`
-holds the five slides of the evaluation in [docs/EVALUATION.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/EVALUATION.md).
+holds the five slides of the evaluation in [docs/EVALUATION.md](docs/EVALUATION.md).
 
 The image reads every format but VSI and ZVI (slideio is left out, see
-[docs/THIRD_PARTY.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/THIRD_PARTY.md)); it carries the licence notices of everything it
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)); it carries the licence notices of everything it
 installs and the source of OpenSlide and openslide-python under `/usr/share/slidetwin/`. It
 limits each client address to 20 requests per second (`SLIDETWIN_RATE_LIMIT_PER_S`). On a
 Hugging Face Space, set as Space variables `SLIDETWIN_ALLOWED_HOSTS` (the Space's host name),
@@ -294,27 +283,28 @@ hours of the default 2-core machine) and 180 on Pro. It also uses about 4 GB of 
 it after a demo, and delete it when it is no longer needed. GitHub's terms allow a codespace for
 developing and testing, such as a short demo, not as a permanent public service.
 
-For a pathologist pilot, see [docs/PILOT.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/PILOT.md). The cost model can be fitted from
+For a pathologist pilot, see [docs/PILOT.md](docs/PILOT.md). The cost model can be fitted from
 human logs with `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml`.
 
 ## Documentation
 
-- Specification: [docs/SPEC.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/SPEC.md) (Chinese)
-- Architecture and contract: [docs/ARCHITECTURE.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/ARCHITECTURE.md)
-- Decision log: [docs/DECISIONS.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/DECISIONS.md)
-- Evaluation report: [docs/EVALUATION.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/EVALUATION.md)
-- Pilot guide: [docs/PILOT.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/PILOT.md)
-- Data sources and licenses: [docs/DATA_LICENSES.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/DATA_LICENSES.md)
-- Third-party software and licences: [docs/THIRD_PARTY.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/THIRD_PARTY.md)
-- Contributing, security, changes: [CONTRIBUTING.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/CONTRIBUTING.md),
-  [SECURITY.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/SECURITY.md), [CHANGELOG.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/CHANGELOG.md); citation: [CITATION.cff](https://github.com/wenhaozhang0066/SlideTwin/blob/main/CITATION.cff)
+- Specification: [docs/SPEC.md](docs/SPEC.md) (Chinese)
+- Architecture and contract: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Decision log: [docs/DECISIONS.md](docs/DECISIONS.md)
+- Evaluation report: [docs/EVALUATION.md](docs/EVALUATION.md)
+- Pilot guide: [docs/PILOT.md](docs/PILOT.md)
+- Data sources and licenses: [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md)
+- Third-party software and licences: [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)
+- Release steps: [docs/RELEASE.md](docs/RELEASE.md)
+- Contributing, security, changes: [CONTRIBUTING.md](CONTRIBUTING.md),
+  [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md); citation: [CITATION.cff](CITATION.cff)
 
 ## Data
 
 No slides, patient data or company data are stored in this repository. Slides are read from
 `SLIDETWIN_SLIDE_DIR` and listed in `configs/slides/manifest.yaml`. Each public slide's source and
-license are recorded in [docs/DATA_LICENSES.md](https://github.com/wenhaozhang0066/SlideTwin/blob/main/docs/DATA_LICENSES.md).
+license are recorded in [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md).
 
 ## License
 
-Code: Apache-2.0 (see [LICENSE](https://github.com/wenhaozhang0066/SlideTwin/blob/main/LICENSE)). Data keep their own licenses.
+Code: Apache-2.0 (see [LICENSE](LICENSE)). Data keep their own licenses.

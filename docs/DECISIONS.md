@@ -1092,3 +1092,25 @@ Plan: docs/PLAN_M9.md (the owner took the recommended answer to all three decisi
     slide, the readers it holds and leaves out, the source archive and the notices.
 - **Codespace** installs every reader extra.
 - **Licence table**: [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Release preparation (2026-10-16)
+
+The owner asked for everything that can be done before the release. Done:
+
+- **Rust crate notices.** `scripts/rust_notices.py` writes, at image build time, the licence files
+  of the crates compiled into installed packages (pydantic-core, rpds-py, cryptography,
+  imagecodecs): each sdist's Cargo.lock, plus the crates whose source paths the modules hold (the
+  Rust standard library's), all sha256-checked; it fails on a Rust package with no Cargo.lock.
+- **libquadmath sources.** Their GCC version is inferred from the bundled libraries' symbol
+  versions (GFORTRAN_8, QUADMATH_1.1 and 1.0): GCC 8.5.0 and 4.8.5. Their `libquadmath` folders,
+  taken from the GNU-signed release archives, are in `third_party/sources/` and in the image.
+- **Package metadata** (URLs, keywords, classifiers); `twine check --strict` passes; the README's
+  links are absolute, so they work on PyPI; the Space's YAML header moved to
+  `deploy/hf_space_readme_header.md`, so GitHub and PyPI show the README as text. `slidetwin` is
+  still free on PyPI and TestPyPI, and pip-audit finds no known vulnerability in the image's
+  packages.
+- **Release workflow** (`.github/workflows/release.yml`): a tag publishes through PyPI trusted
+  publishing after the tag, history, dists and installed-wheel checks.
+- **A clean history**, prepared outside the repository (the rewrite rules name the internal path).
+- **Steps only the owner can take**: [RELEASE.md](RELEASE.md).
+
