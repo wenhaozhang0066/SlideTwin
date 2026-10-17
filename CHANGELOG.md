@@ -2,6 +2,11 @@
 
 Versions follow semantic versioning from 1.0; until then, any release may change interfaces.
 
+## Unreleased
+
+- Docs: CITATION.cff gives the authors' standard affiliations; the READMEs and the package
+  metadata link the project blog (GitHub Pages, branch `gh-pages`).
+
 ## 0.1.1 (2026-10-17)
 
 - The reading UI starts with the `viewer` rules, the default of the API and of the pilot guide; it

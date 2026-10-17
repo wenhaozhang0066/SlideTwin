@@ -16,6 +16,8 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 
 ![在网页界面里阅读 CC0 测试切片：总览、放大倍数快捷键、一次测量、一个多边形标注和报告回执](docs/media/reading.gif)
 
+博客文章（中英双语）：[Introducing SlideTwin](https://wenhaozhang0066.github.io/SlideTwin/)。
+
 ## 安装与运行
 
 需要 Python 3.12 或更高版本，运行在 Linux 上。

@@ -18,7 +18,7 @@ It supports three kinds of experiments:
 ![A reading of the CC0 test slide in the web UI: overview, magnification keys, a measurement, a
 polygon and the report receipt](docs/media/reading.gif)
 
-中文说明见 [README_zh.md](README_zh.md).
+Blog post: [Introducing SlideTwin](https://wenhaozhang0066.github.io/SlideTwin/). 中文说明见 [README_zh.md](README_zh.md).
 
 ## Install and run
 

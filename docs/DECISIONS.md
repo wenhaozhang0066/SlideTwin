@@ -1140,3 +1140,10 @@ The owner asked for everything that can be done before the release. Done:
   reference, and the project blog uses the same BibTeX entry. The milestone table left the READMEs;
   this log keeps the history.
 
+## After 0.1.1 (2026-10-17)
+
+- **Affiliations and blog.** Standard names, from the owner: Wenhao Zhang and Sheng Li, School of Data
+  Science, University of Virginia; Zhongliang Zhou, Merck & Co., Inc. (CITATION.cff, the blog). The
+  blog is served by GitHub Pages from the `gh-pages` branch; the READMEs link it now, the package
+  metadata from the next release.
+

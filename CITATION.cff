@@ -5,18 +5,19 @@ type: software
 authors:
   - family-names: "Zhang"
     given-names: "Wenhao"
-    affiliation: "University of Virginia"
+    affiliation: "School of Data Science, University of Virginia"
     email: "bdu8us@virginia.edu"
   - family-names: "Zhou"
     given-names: "Zhongliang"
-    affiliation: "Merck"
+    affiliation: "Merck & Co., Inc."
   - family-names: "Li"
     given-names: "Sheng"
-    affiliation: "University of Virginia"
+    affiliation: "School of Data Science, University of Virginia"
 version: 0.1.1
 date-released: 2026-10-17
 license: Apache-2.0
 repository-code: "https://github.com/wenhaozhang0066/SlideTwin"
+url: "https://wenhaozhang0066.github.io/SlideTwin/"
 abstract: >-
   SlideTwin simulates reading a whole-slide image through a microscope-like viewer: preset
   magnifications, a fixed field of view, action costs in virtual time, protocol rules and a

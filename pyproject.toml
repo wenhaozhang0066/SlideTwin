@@ -49,6 +49,7 @@ Homepage = "https://github.com/wenhaozhang0066/SlideTwin"
 Documentation = "https://github.com/wenhaozhang0066/SlideTwin#readme"
 Issues = "https://github.com/wenhaozhang0066/SlideTwin/issues"
 Changelog = "https://github.com/wenhaozhang0066/SlideTwin/blob/main/CHANGELOG.md"
+Blog = "https://wenhaozhang0066.github.io/SlideTwin/"
 
 [project.scripts]
 slidetwin = "slidetwin.cli:main"
