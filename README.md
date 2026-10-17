@@ -34,12 +34,17 @@ polygon and the report receipt](docs/media/reading.gif)
 | M7 | Docker image, slide download, rate limit, pilot guide and feedback, cost calibration | done; demo in GitHub Codespaces |
 | M8 | Every common WSI format: content-based router, readers, file sets, provenance | done |
 | M10 | A small demo: three public slides, 0.9 GB | done |
-| M9 | pip package, `slidetwin` command, Python training interface | planned |
+| M9 | pip package, `slidetwin` command, Python training interface | done; on PyPI at the open-source release |
 
 ## Install and run
 
+SlideTwin needs Python 3.12 or later on Linux. Until the open-source release puts it on PyPI,
+install it from a checkout:
+
 ```bash
-pip install ".[all]"        # from a checkout, with every reader; on PyPI at the open-source release
+git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
+python3 -m venv .venv && . .venv/bin/activate
+pip install ".[all]"        # with every reader
 ```
 
 The `slidetwin` command:
@@ -50,30 +55,37 @@ slidetwin check /path/to/slide.svs                  # what SlideTwin reads in a 
 slidetwin manifest /path/to/slides -o manifest.yaml # opaque ids, hashes, formats; refusals listed
 slidetwin serve --slides /path/to/slides --manifest manifest.yaml
 slidetwin mcp --slides /path/to/slides --manifest manifest.yaml   # MCP over stdio
-slidetwin replay logs/sessions/<id>.jsonl           # replay a reading, report differences
+slidetwin replay --demo logs/sessions/<id>.jsonl    # replay a reading, report differences
 slidetwin fetch --demo                              # download only
 ```
 
-`serve` listens on 127.0.0.1:7860 (`--host 0.0.0.0` for every interface); open
-http://localhost:7860/ to read a slide in the browser. For a local agent, e.g. Claude Code:
-`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest
-/path/to/manifest.yaml --log-dir /path/to/logs` (absolute paths: the agent may start it in any
-folder). Readings are logged under `./logs` unless `--log-dir` or `SLIDETWIN_LOG_DIR` says
-otherwise. The profiles, the protocol and the demo
-manifest come with the package; `SLIDETWIN_CONFIG_DIR` or a `configs/` folder in the working
-directory replace them.
+`--demo` downloads into `./data/slides` (`--slides` names another folder); `serve --demo` starts
+listening once the download is done. `serve` listens on 127.0.0.1:7860: open
+http://localhost:7860/ to read a slide in the browser. To serve other machines, add
+`--host 0.0.0.0` and set `SLIDETWIN_ALLOWED_HOSTS` to the name or address they use. `replay` takes
+the slide options the reading was served with: `--demo`, or `--slides` and `--manifest`.
+
+For a local agent, e.g. Claude Code: `claude mcp add slidetwin -- /path/to/.venv/bin/slidetwin
+mcp --slides /path/to/slides --manifest /path/to/manifest.yaml --log-dir /path/to/logs`. Use
+absolute paths, `slidetwin` included: the agent may start it in any folder and without your
+virtual environment. Readings are logged under `./logs` unless `--log-dir` or
+`SLIDETWIN_LOG_DIR` says otherwise. The profiles, the protocol and the demo manifest come with the
+package; `SLIDETWIN_CONFIG_DIR` or a `configs/` folder in the working directory replace them.
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-python scripts/fetch_test_data.py           # 1.9 MB CC0 test slide
+python scripts/fetch_test_data.py           # five small CC0 test slides (11 MB) in data/testdata
 pytest -q
-uvicorn slidetwin.api.main:app --reload --port 7860
+slidetwin fetch --only cmu1_small           # the CC0 slide the API example below opens
+uvicorn slidetwin.api.main:app --reload --port 7860 --no-access-log
 ```
 
-All checks, the same as CI: `bash scripts/ci_local.sh` (ruff, mypy, UI unit tests, pytest with the
-coverage gate). The browser tests need `pip install -e ".[dev,e2e]"` and
+`bash scripts/ci_local.sh` runs most of CI on your machine: it downloads the larger test slides
+(about 300 MB), then runs ruff, mypy, the UI unit tests (they need Node.js and are skipped
+without it) and pytest with the 100% coverage gate. CI also runs the browser tests and checks the
+wheel and the Docker image. The browser tests need `pip install -e ".[dev,e2e]"` and
 `python -m playwright install chromium`; without them they are skipped.
 
 ## Slide formats
@@ -82,7 +94,7 @@ SlideTwin picks the reader from the file's content. A format without a reader it
 refused with a message that says how to convert the slide; it never guesses. "Experimental" formats
 were checked on synthetic files only and are served when the slide's manifest entry sets
 `experimental: true`. Readers marked (openslide), (slideio) or (isyntax) need that extra, e.g.
-`pip install "slidetwin[openslide]"`.
+`pip install ".[openslide]"` in a checkout; `".[all]"` installs them all.
 
 | Format | Files | Served | Refused or experimental |
 |---|---|---|---|
@@ -114,7 +126,8 @@ no reader for can be added on your own machine with a reader plugin: see
 
 ## The API in one minute
 
-Every action of a reading session is one HTTP call. Interactive docs are at `/docs`.
+Every action of a reading session is one HTTP call. Interactive docs are at `/docs`. With a
+server from `slidetwin serve --demo` or from the Development steps:
 
 ```bash
 # open a slide (returns the first view, the slide geometry, the task and the rules)
@@ -122,13 +135,14 @@ curl -s -X POST localhost:7860/api/sessions -H 'content-type: application/json' 
   -d '{"slide_id": "cmu1_small", "actor": "agent:demo"}' > session.json
 SID=$(python -c 'import json; print(json.load(open("session.json"))["session_id"])')
 
-# move: every response carries cost_s, elapsed_s, the new state and the new view (base64 JPEG)
+# act: every response carries cost_s, elapsed_s and the new state; a move returns the new view
+# (base64 JPEG), a measurement the length in micrometres
 curl -s -X POST localhost:7860/api/sessions/$SID/magnification -H 'content-type: application/json' -d '{"mag": 10}'
-curl -s -X POST localhost:7860/api/sessions/$SID/pan -H 'content-type: application/json' -d '{"dx": 0.5, "dy": 0}'
+curl -s -X POST localhost:7860/api/sessions/$SID/pan -H 'content-type: application/json' -d '{"dx": 0, "dy": 0.5}'
 curl -s -X POST localhost:7860/api/sessions/$SID/measure -H 'content-type: application/json' \
   -d '{"p1_px": [100, 100], "p2_px": [400, 100]}'
 
-# the log: one JSON line per action, replayable with slidetwin.core.replay
+# the log: a header line, then one JSON line per action (this export too); slidetwin replay reads it
 curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
 ```
 
@@ -145,11 +159,15 @@ curl -s localhost:7860/api/sessions/$SID/trajectory > session.jsonl
 | export_trajectory | `GET /api/sessions/{id}/trajectory` |
 | report schema | `GET /api/report_schema` |
 
-Settings come from environment variables: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_SLIDE_DIR`,
-`SLIDETWIN_LOG_DIR` (required; trajectories are written there as they happen), `SLIDETWIN_CACHE_DIR`,
-`SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`, `SLIDETWIN_SESSION_MAX_AGE_S`,
-`SLIDETWIN_MAX_BODY_BYTES`, `SLIDETWIN_ALLOWED_HOSTS`, `SLIDETWIN_ALLOWED_ORIGINS`. The
-default viewport is 1280 x 1024 px (see docs/DECISIONS.md).
+Settings come from environment variables, with the defaults listed in
+`slidetwin/api/settings.py`: `SLIDETWIN_CONFIG_DIR`, `SLIDETWIN_MANIFEST`, `SLIDETWIN_SLIDE_DIR`,
+`SLIDETWIN_LOG_DIR` (default `logs`; trajectories are written there as they happen, so it cannot
+be empty), `SLIDETWIN_CACHE_DIR`, `SLIDETWIN_MAX_SESSIONS`, `SLIDETWIN_SESSION_TTL_S`,
+`SLIDETWIN_SESSION_MAX_AGE_S`, `SLIDETWIN_SESSION_EVICT_IDLE_S`, `SLIDETWIN_MAX_BODY_BYTES`,
+`SLIDETWIN_ALLOWED_HOSTS`, `SLIDETWIN_ALLOWED_ORIGINS`, `SLIDETWIN_RATE_LIMIT_PER_S`,
+`SLIDETWIN_RATE_LIMIT_BURST`, `SLIDETWIN_RATE_LIMIT_CLIENT_HEADER`. The download at start reads
+`SLIDETWIN_FETCH_SLIDES` (1 downloads) and `SLIDETWIN_FETCH_ONLY` (slide ids). The default viewport
+is 1280 x 1024 px (see docs/DECISIONS.md).
 
 ## MCP and agents
 
@@ -170,7 +188,7 @@ python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_s
 python -m slidetwin.agents random --env http://localhost:7860 --transport mcp --slide cmu1_small
 python -m slidetwin.agents crop --env http://localhost:7860 --slide cmu1_small   # unconstrained profile
 
-# a vision LLM: the Anthropic API (pip install -e ".[llm]"; key in ANTHROPIC_API_KEY) ...
+# a vision LLM: the Anthropic API (pip install ".[llm]"; ANTHROPIC_API_KEY or `ant auth login`) ...
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small --out reading.jsonl
 # ... or any OpenAI-compatible endpoint, e.g. a local vLLM
 python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000/v1 \
@@ -181,21 +199,23 @@ python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000
 
 For training, `slidetwin.env` runs sessions inside your own process: no HTTP and no JPEG round trip,
 with the same rules, costs and logs as REST and MCP. An action is a dict naming the action plus its
-REST request body; a step returns the view as an RGB array.
+REST request body; a step returns the view as an RGB array. This script reads a demo slide: run it
+in the folder where `slidetwin fetch --demo` put the slides (`./data/slides`).
 
 ```python
-from slidetwin.env import Env, VecEnv
+from slidetwin.env import Env, VecEnv, demo_manifest
 
-with Env("configs/slides/manifest.yaml", "data/slides") as env:
-    step = env.reset("c16_fa751c")  # the first view, slide, task and rules
-    step = env.step({"action": "set_magnification", "mag": 10})
-    step.image, step.cost_s, step.elapsed_s, step.done  # (1024, 1280, 3) uint8 array, ...
-    step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
-    step.error  # a rejected action, as REST reports it
+if __name__ == "__main__":  # VecEnv's workers import this script: keep everything under the guard
+    with Env(demo_manifest()) as env:
+        step = env.reset("c16_29f5ca")  # the first view, slide, task and rules
+        step = env.step({"action": "set_magnification", "mag": 10})
+        step.image, step.cost_s, step.elapsed_s, step.done  # (1024, 1280, 3) uint8 array, ...
+        step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
+        step = env.step({"action": "set_magnification", "mag": 7})
+        step.error  # refused (MAG_NOT_PRESET), as REST reports it
 
-if __name__ == "__main__":  # VecEnv spawns its workers: a script needs this guard
-    with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
-        steps = vec.reset(["c16_fa751c"] * 8)  # one worker process per environment
+    with VecEnv(8, manifest=demo_manifest()) as vec:  # one worker process per environment
+        steps = vec.reset(["c16_29f5ca"] * 8)
         steps = vec.step([{"action": "view"}] * 8)
 ```
 
@@ -208,33 +228,45 @@ CAMELYON16 slide, one environment ran 32 actions per second and eight workers 18
 
 ## Evaluation
 
-Offline tools in `slidetwin/eval` score readings against the CAMELYON annotations, which are used
-for evaluation only. The demo report is in [docs/EVALUATION.md](docs/EVALUATION.md).
+Offline tools in `slidetwin/eval` score readings against the CAMELYON16 annotations, which are used
+for evaluation only. [docs/EVALUATION.md](docs/EVALUATION.md) reports the baseline agents on the
+five CAMELYON16 slides of `configs/slides/manifest.yaml` (5.3 GB; the demo has one of them). To
+reproduce it:
 
 ```bash
-python -m slidetwin.eval convert --xml-dir /path/to/CAMELYON16/annotations
-python -m slidetwin.eval run --out data/eval/demo --slides c16_fa751c,c16_f606e8
-python -m slidetwin.eval evaluate --out data/eval/demo    # metrics, report table, pictures
+SLIDES=c16_fa751c,c16_aba3ae,c16_2abf4f,c16_f606e8,c16_683d2d
+slidetwin fetch --only $SLIDES
+mkdir -p xml && for n in tumor_082 tumor_093 tumor_081 tumor_058; do
+  curl -fsSo xml/$n.xml https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/annotations/$n.xml
+done
+python -m slidetwin.eval convert --xml-dir xml          # the annotations, as GeoJSON
+python -m slidetwin.eval run --out data/eval/RUN --slides $SLIDES
+python -m slidetwin.eval evaluate --out data/eval/RUN   # metrics, report table, pictures
 ```
 
 ## Deployment
 
 ```bash
 docker build -t slidetwin --build-arg GIT_SHA=$(git rev-parse --short HEAD) .
-docker run -p 7860:7860 slidetwin           # downloads the demo's public slides (0.9 GB) at start
+docker run -p 7860:7860 slidetwin           # downloads the demo's public slides (0.9 GB), then serves
 ```
 
-To read your own slides, mount them and a manifest, and skip the download:
+To read your own slides, mount them and a manifest, and skip the download. The container runs as
+uid 1000, which must be able to read the slides. It writes the readings' logs to
+`/tmp/slidetwin/logs`, which go with the container unless a folder is mounted there (writable by
+uid 1000):
 
 ```bash
 docker run -p 7860:7860 -e SLIDETWIN_FETCH_SLIDES=0 \
   -v /path/to/slides:/data/slides \
-  -v /path/to/manifest.yaml:/data/manifest.yaml -e SLIDETWIN_MANIFEST=/data/manifest.yaml slidetwin
+  -v /path/to/manifest.yaml:/data/manifest.yaml -e SLIDETWIN_MANIFEST=/data/manifest.yaml \
+  -v /path/to/logs:/tmp/slidetwin/logs slidetwin
 ```
 
 The demo's slides (`configs/slides/demo.yaml`) are a small CC0 sample and two CAMELYON16
 lymph-node slides, one negative and one with a micro-metastasis. `configs/slides/manifest.yaml`
-holds the five slides of the evaluation in [docs/EVALUATION.md](docs/EVALUATION.md).
+holds the CC0 sample and the five slides of the evaluation in
+[docs/EVALUATION.md](docs/EVALUATION.md).
 
 The image reads every format but VSI and ZVI (slideio is left out, see
 [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)); it carries the licence notices of everything it
@@ -302,8 +334,9 @@ human logs with `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml`.
 ## Data
 
 No slides, patient data or company data are stored in this repository. Slides are read from
-`SLIDETWIN_SLIDE_DIR` and listed in `configs/slides/manifest.yaml`. Each public slide's source and
-license are recorded in [docs/DATA_LICENSES.md](docs/DATA_LICENSES.md).
+`SLIDETWIN_SLIDE_DIR` and listed in a manifest (`configs/slides/demo.yaml`,
+`configs/slides/manifest.yaml`). Each public slide's source and license are recorded in
+[docs/DATA_LICENSES.md](docs/DATA_LICENSES.md).
 
 ## License
 

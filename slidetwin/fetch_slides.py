@@ -89,7 +89,8 @@ def _fetch(entry: SlideEntry, slide_dir: Path, client: httpx.Client) -> bool:
                     done += len(chunk)
                     if total and done / total >= next_note:
                         rate = done / max(time.monotonic() - started, 1e-6) / 1e6
-                        share = f"{done / total:6.1%} of {total / 1e9:.2f} GB"
+                        size = f"{total / 1e9:.2f} GB" if total >= 1e8 else f"{total / 1e6:.1f} MB"
+                        share = f"{done / total:6.1%} of {size}"
                         _say(f"{entry.id}: {share}, {rate:.0f} MB/s")
                         next_note += 0.1
         if entry.sha256 is not None and digest.hexdigest() != entry.sha256:

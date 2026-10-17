@@ -58,7 +58,7 @@ from slidetwin.api.schemas import (
     PanRequest,
     ReportRequest,
 )
-from slidetwin.core.config import ConfigStore, default_config_dir
+from slidetwin.core.config import ConfigStore, default_config_dir, demo_manifest
 from slidetwin.core.errors import SlideTwinError
 from slidetwin.core.manager import SessionManager
 from slidetwin.core.registry import SlideRegistry
@@ -78,6 +78,7 @@ ACTIONS: dict[str, tuple[type[BaseModel], tuple[str, ...]]] = {
     "crop": (CropRequest, ("x_um", "y_um", "w_um", "h_um")),
     "submit_report": (ReportRequest, ("report",)),
 }
+__all__ = ["Env", "Step", "VecEnv", "demo_manifest"]
 IMAGE_FORMATS = ("array", "jpeg")
 VIA_ENV = {"via": "env"}
 MAX_BODY_BYTES = 1_000_000  # REST's default limit of a request body (SLIDETWIN_MAX_BODY_BYTES)

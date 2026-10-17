@@ -349,3 +349,23 @@ def test_the_last_corners(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(scan.yaml, "safe_load", lambda text: {})
     with pytest.raises(ValueError, match="load back"):
         scan.manifest_yaml({"schema_version": 1, "slides": []}, [])
+
+
+def test_replay_takes_the_demo_slides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import SimpleNamespace
+
+    from slidetwin.core import replay as replay_mod
+    from slidetwin.core.config import demo_manifest
+
+    seen: dict[str, str] = {}
+
+    def fake(log: Path, registry: Any) -> Any:
+        seen["manifest"] = os.environ["SLIDETWIN_MANIFEST"]
+        return SimpleNamespace(events=1, images_checked=0, mismatches=[], ok=True)
+
+    monkeypatch.setattr(replay_mod, "replay", fake)
+    assert run(capsys, "replay", "--demo", str(tmp_path / "x.jsonl"))[0] == 0
+    assert seen["manifest"] == str(demo_manifest())
+    assert demo_manifest().is_file()

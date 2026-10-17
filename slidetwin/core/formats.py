@@ -99,7 +99,7 @@ def sniff(path: Path, name: str = "slide") -> FormatMatch:
     if not path.is_file():
         raise SlideNotFound(
             f"The file for slide '{name}' was not found.",
-            hint="Check SLIDETWIN_SLIDE_DIR and the path in configs/slides/manifest.yaml.",
+            hint="Check the slide folder (SLIDETWIN_SLIDE_DIR) and the slide's manifest path.",
         )
     with path.open("rb") as f:  # an OSError (unreadable) is reported by the registry
         head = f.read(512)

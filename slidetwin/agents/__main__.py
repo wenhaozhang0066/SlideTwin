@@ -82,7 +82,14 @@ async def run(args: argparse.Namespace) -> AgentResult:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse(argv)
-    result = asyncio.run(run(args))
+    try:
+        result = asyncio.run(run(args))
+    except Exception as err:  # a missing key, an unreachable server: one line, not a traceback
+        if os.environ.get("SLIDETWIN_DEBUG"):
+            raise
+        message = str(err).strip().splitlines()[0] if str(err).strip() else ""
+        detail = f"{type(err).__name__}: {message[:300]}"
+        sys.exit(f"slidetwin agents: {detail} (SLIDETWIN_DEBUG=1 shows the traceback)")
     if args.out:
         args.out.write_text(result.trajectory, encoding="ascii")
     receipt = result.receipt or {}

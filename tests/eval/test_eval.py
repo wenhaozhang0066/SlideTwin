@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 from PIL import Image
 
 from slidetwin.core.geometry import BBox
@@ -178,6 +179,34 @@ def test_metrics_of_a_serpentine_reading(study: Paths, tmp_path: Path) -> None:
 
 
 # --- comparison, pictures, report and command line -------------------------------------------
+
+
+def test_convert_skips_slides_that_are_not_there(
+    study: Paths, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data = yaml.safe_load(study.manifest.read_text())
+    ghost = {
+        "id": "ghost",
+        "path": "ghost.tif",
+        "eval_only": {"label": "tumor", "annotation": "g.xml"},
+    }
+    data["slides"].append(ghost)
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(yaml.safe_dump(data))
+    annotations = tmp_path / "annotations"
+    args = ["--manifest", str(manifest), "--slide-dir", str(study.slide_dir)]
+    main(
+        [
+            "convert",
+            *args,
+            "--xml-dir",
+            str(study.slide_dir / "xml"),
+            "--annotations",
+            str(annotations),
+        ]
+    )
+    assert sorted(p.name for p in annotations.iterdir()) == ["syn_tissue.geojson"]
+    assert "skipped ghost: its slide is not in the slide folder" in capsys.readouterr().err
 
 
 def test_profile_comparison_report_and_pictures(study: Paths, tmp_path: Path) -> None:

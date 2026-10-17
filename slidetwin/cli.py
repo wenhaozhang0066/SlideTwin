@@ -78,6 +78,7 @@ def _parser() -> argparse.ArgumentParser:
     q.add_argument("-o", "--output", type=Path, help="write it here instead of stdout")
     q = command("replay", "Replay a trajectory and report differences.", _replay)
     slides(q)
+    q.add_argument("--demo", action="store_true", help="a reading of the demo's slides")
     q.add_argument("log", type=Path)
     q = command("fetch", "Download a manifest's public slides (sha256-checked).", _fetch)
     slides(q)
@@ -86,16 +87,12 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
-def _demo_manifest() -> Path:
-    from slidetwin.core.config import default_config_dir
-
-    return default_config_dir() / "slides" / "demo.yaml"
-
-
 def _environ(args: argparse.Namespace) -> None:
     """The command's slide options as the server's environment variables."""
     if getattr(args, "demo", False):
-        os.environ["SLIDETWIN_MANIFEST"] = str(_demo_manifest())
+        from slidetwin.core.config import demo_manifest
+
+        os.environ["SLIDETWIN_MANIFEST"] = str(demo_manifest())
     if args.manifest is not None:
         os.environ["SLIDETWIN_MANIFEST"] = str(args.manifest)
     if args.slides is not None:

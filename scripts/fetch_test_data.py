@@ -104,6 +104,12 @@ FILES = [
         DIST,
     ),
     _item(
+        "Leica/Leica-1.scn",
+        "63a3c00fef5215497a9725cf19092a93f7f5ff855ce8561af74b087631831a97",
+        3,
+        DIST,
+    ),
+    _item(
         "Leica/Leica-Fluorescence-1.scn",
         "a9037f7d683dc0a95e2e5f33bceee71f0449042e70e6d1421ca580bcd97a023a",
         3,

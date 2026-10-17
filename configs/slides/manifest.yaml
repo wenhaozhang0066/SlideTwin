@@ -14,8 +14,9 @@ slides:
     license: CC0-1.0
     attribution: OpenSlide test data, Carnegie Mellon University
 
-  # CAMELYON16 demo slides (training set). License: stricter reading until confirmed (see
-  # DATA_LICENSES.md): non-commercial research demo, credit the source, no image modification.
+  # CAMELYON16 slides of the evaluation (training set). License: stricter reading until
+  # confirmed (see DATA_LICENSES.md): non-commercial research demo, credit the source, no image
+  # modification.
   - id: c16_fa751c
     path: camelyon16/tumor_082.tif
     source_url: https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/images/tumor_082.tif

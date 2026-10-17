@@ -13,9 +13,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 from slidetwin.core.config import ConfigStore, default_config_dir
+from slidetwin.core.errors import SlideNotFound
 from slidetwin.core.registry import SlideRegistry
 from slidetwin.core.trajectory import load_trajectory
 from slidetwin.eval.annotations import parse_asap, to_geojson
@@ -44,7 +46,12 @@ def convert(paths: Paths, xml_dir: Path, out: Path) -> list[Path]:
             if not name:
                 continue
             xml = xml_dir / Path(str(name)).name
-            regions = parse_asap(xml.read_bytes(), registry.get(slide_id).source.mpp)
+            try:
+                mpp = registry.get(slide_id).source.mpp
+            except SlideNotFound:  # not downloaded: the others are still converted
+                print(f"skipped {slide_id}: its slide is not in the slide folder", file=sys.stderr)
+                continue
+            regions = parse_asap(xml.read_bytes(), mpp)
             target = out / f"{slide_id}.geojson"
             data = to_geojson(regions, slide_id=slide_id, source=Path(str(name)).name)
             target.write_text(json.dumps(data), encoding="utf-8")

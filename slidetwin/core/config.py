@@ -300,6 +300,11 @@ def default_config_dir(environ: Mapping[str, str] | None = None) -> Path:
     return Path("configs")  # none found: loading reports the folder it looked in
 
 
+def demo_manifest() -> Path:
+    """The manifest of the demo's public slides (download them with `slidetwin fetch --demo`)."""
+    return default_config_dir() / "slides" / "demo.yaml"
+
+
 class ConfigStore:
     """All profiles and protocols under a config directory, validated at load time."""
 

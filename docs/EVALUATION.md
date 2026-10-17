@@ -1,4 +1,4 @@
-# Evaluation of the baseline agents on the demo slides
+# Evaluation of the baseline agents on five CAMELYON16 slides
 
 Generated on 2026-10-15 by `python -m slidetwin.eval`, re-run after the M3-M7 review fixes
 (the numbers did not change).
@@ -7,7 +7,8 @@ git-ignored `data/eval/` because the CAMELYON licence terms are unclear (DATA_LI
 
 ## Set-up
 
-- **Slides.** The five CAMELYON16 demo slides of the manifest:
+- **Slides.** The five CAMELYON16 slides of `configs/slides/manifest.yaml` (the demo has the
+  negative one):
   - `c16_fa751c`: macro-metastasis, largest deposit 4.05 mm;
   - `c16_aba3ae`: micro-metastasis, 1.27 mm;
   - `c16_2abf4f`: micro-metastasis, 0.28 mm;
@@ -112,9 +113,13 @@ Means over the five slides; counts over the readings that have a ground truth.
 ## Reproduce
 
 ```bash
-python -m slidetwin.eval convert --xml-dir /path/to/CAMELYON16/annotations
-python -m slidetwin.eval run --out data/eval/RUN \
-  --slides c16_fa751c,c16_aba3ae,c16_2abf4f,c16_f606e8,c16_683d2d --agents serpentine,random,crop
+SLIDES=c16_fa751c,c16_aba3ae,c16_2abf4f,c16_f606e8,c16_683d2d
+slidetwin fetch --only $SLIDES                          # 5.3 GB into ./data/slides
+mkdir -p xml && for n in tumor_082 tumor_093 tumor_081 tumor_058; do
+  curl -fsSo xml/$n.xml https://camelyon-dataset.s3.amazonaws.com/CAMELYON16/annotations/$n.xml
+done
+python -m slidetwin.eval convert --xml-dir xml
+python -m slidetwin.eval run --out data/eval/RUN --slides $SLIDES --agents serpentine,random,crop
 python -m slidetwin.eval evaluate --out data/eval/RUN
 ```
 

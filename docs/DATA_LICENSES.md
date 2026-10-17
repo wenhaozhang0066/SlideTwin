@@ -12,7 +12,7 @@ This file records where each public slide comes from and under which terms we us
 `scripts/fetch_test_data.py` downloads it to `data/testdata/` and checks the hash. The file also contains
 label and macro images; SlideTwin never serves associated images.
 
-## CAMELYON16 (demo slides)
+## CAMELYON16 (demo and evaluation slides)
 
 On 2026-10-16 the owner decided to serve these slides on the public Hugging Face Space
 (DECISIONS.md, "Publication"), and the same day to demo them from a GitHub Codespace instead,

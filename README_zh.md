@@ -30,12 +30,16 @@ SlideTwin 是一个可以被 AI agent 操作的数字病理阅片器。人和 ag
 | M7 | Docker 镜像、切片下载、请求限流、试点指南与反馈、代价标定 | 完成；demo 在 GitHub Codespaces 运行 |
 | M8 | 常见 WSI 格式全覆盖：按内容选读取器、各格式读取器、多文件切片、来源记录 | 完成 |
 | M10 | 小型 demo：三张公开切片，共 0.9 GB | 完成 |
-| M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 计划中 |
+| M9 | pip 包、`slidetwin` 命令、Python 训练接口 | 完成；开源时发布到 PyPI |
 
 ## 安装与运行
 
+需要 Python 3.12 或更高版本，运行在 Linux 上。开源发布到 PyPI 之前，请从仓库安装：
+
 ```bash
-pip install ".[all]"        # 在仓库目录里安装，含全部读取器；开源时发布到 PyPI
+git clone https://github.com/wenhaozhang0066/SlideTwin.git && cd SlideTwin
+python3 -m venv .venv && . .venv/bin/activate
+pip install ".[all]"        # 含全部读取器
 ```
 
 `slidetwin` 命令：
@@ -46,28 +50,31 @@ slidetwin check /path/to/slide.svs                  # 查看 SlideTwin 能从切
 slidetwin manifest /path/to/slides -o manifest.yaml # 生成清单：不透明 id、哈希、格式，并列出拒绝原因
 slidetwin serve --slides /path/to/slides --manifest manifest.yaml
 slidetwin mcp --slides /path/to/slides --manifest manifest.yaml   # stdio 上的 MCP
-slidetwin replay logs/sessions/<id>.jsonl           # 回放一次阅片并报告差异
+slidetwin replay --demo logs/sessions/<id>.jsonl    # 回放一次阅片并报告差异
 slidetwin fetch --demo                              # 只下载
 ```
 
-`serve` 默认监听 127.0.0.1:7860（`--host 0.0.0.0` 监听所有网卡）。本地 agent（例如 Claude Code）：`claude mcp add slidetwin -- slidetwin mcp --slides /path/to/slides --manifest /path/to/manifest.yaml --log-dir /path/to/logs`（请用绝对路径：agent 可能在任何目录下启动它）。阅片日志默认写在 `./logs`，可用 `--log-dir` 或 `SLIDETWIN_LOG_DIR` 改。规则档、协议和 demo 清单随包安装；`SLIDETWIN_CONFIG_DIR` 或工作目录下的 `configs/` 会替换它们。
+`--demo` 把切片下载到 `./data/slides`（可用 `--slides` 指定其他目录）；`serve --demo` 下载完成后才开始监听。`serve` 默认监听 127.0.0.1:7860，在浏览器打开 http://localhost:7860/ 即可阅片。要让其他机器访问，加 `--host 0.0.0.0`，并把 `SLIDETWIN_ALLOWED_HOSTS` 设为它们使用的主机名或地址。`replay` 需要与阅片时相同的切片选项：`--demo`，或 `--slides` 加 `--manifest`。
+
+本地 agent（例如 Claude Code）：`claude mcp add slidetwin -- /path/to/.venv/bin/slidetwin mcp --slides /path/to/slides --manifest /path/to/manifest.yaml --log-dir /path/to/logs`。请全部使用绝对路径，`slidetwin` 本身也要：agent 可能在任何目录下、且不在你的虚拟环境里启动它。阅片日志默认写在 `./logs`，可用 `--log-dir` 或 `SLIDETWIN_LOG_DIR` 改。规则档、协议和 demo 清单随包安装；`SLIDETWIN_CONFIG_DIR` 或工作目录下的 `configs/` 会替换它们。
 
 ## 开发
 
 ```bash
 pip install -e ".[dev]"
-python scripts/fetch_test_data.py           # 1.9 MB 的 CC0 测试切片
+python scripts/fetch_test_data.py           # 五个 CC0 小测试切片（11 MB），存到 data/testdata
 pytest -q
-uvicorn slidetwin.api.main:app --reload --port 7860
+slidetwin fetch --only cmu1_small           # 开发服务器要打开的 CC0 切片
+uvicorn slidetwin.api.main:app --reload --port 7860 --no-access-log
 ```
 
 在浏览器打开 http://localhost:7860/ 即可阅片；界面默认英文，可随时切换为中文。
 
-与 CI 相同的全部检查：`bash scripts/ci_local.sh`。
+`bash scripts/ci_local.sh` 在本机运行 CI 的大部分检查：先下载较大的测试切片（约 300 MB），再运行 ruff、mypy、界面单元测试（需要 Node.js，没有则跳过）和覆盖率门槛为 100% 的 pytest。CI 另外还运行浏览器测试，并检查 wheel 和 Docker 镜像。
 
 ## 切片格式
 
-SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide)、(slideio) 或 (isyntax) 的需要先安装对应扩展，例如 `pip install "slidetwin[openslide]"`。
+SlideTwin 根据文件内容选择读取器。没有可信读取器的格式会被拒绝，并提示如何转换，绝不猜测。"实验性"格式只在合成文件上验证过，需要在清单里给该切片设置 `experimental: true` 才会打开。标 (openslide)、(slideio) 或 (isyntax) 的需要先安装对应扩展，例如在仓库目录里 `pip install ".[openslide]"`；`".[all]"` 安装全部扩展。
 
 | 格式 | 文件 | 支持 | 拒绝或实验性 |
 |---|---|---|---|
@@ -107,26 +114,27 @@ claude mcp add --transport http slidetwin http://localhost:7860/mcp
 
 ```bash
 python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
-python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install -e ".[llm]" 和 ANTHROPIC_API_KEY
+python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install ".[llm]"，以及 ANTHROPIC_API_KEY 或 `ant auth login`
 ```
 
 ## 训练接口
 
-训练时用 `slidetwin.env` 在你自己的进程里运行会话：不走 HTTP，不经 JPEG 编解码，规则、代价和日志与 REST、MCP 完全相同。动作是一个 dict：动作名加上它的 REST 请求体；每一步返回 RGB 数组形式的视野。
+训练时用 `slidetwin.env` 在你自己的进程里运行会话：不走 HTTP，不经 JPEG 编解码，规则、代价和日志与 REST、MCP 完全相同。动作是一个 dict：动作名加上它的 REST 请求体；每一步返回 RGB 数组形式的视野。下面的脚本读取一张 demo 切片：请在 `slidetwin fetch --demo` 存放切片的目录（`./data/slides` 所在目录）里运行。
 
 ```python
-from slidetwin.env import Env, VecEnv
+from slidetwin.env import Env, VecEnv, demo_manifest
 
-with Env("configs/slides/manifest.yaml", "data/slides") as env:
-    step = env.reset("c16_fa751c")  # 首个视野，以及切片、任务和规则
-    step = env.step({"action": "set_magnification", "mag": 10})
-    step.image, step.cost_s, step.elapsed_s, step.done
-    step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
-    step.error  # 被拒绝的动作，格式与 REST 相同
+if __name__ == "__main__":  # VecEnv 的工作进程会导入这个脚本：所有代码都放在这个保护之下
+    with Env(demo_manifest()) as env:
+        step = env.reset("c16_29f5ca")  # 首个视野，以及切片、任务和规则
+        step = env.step({"action": "set_magnification", "mag": 10})
+        step.image, step.cost_s, step.elapsed_s, step.done  # (1024, 1280, 3) uint8 数组, ...
+        step = env.step({"action": "pan", "dx": 0.5, "dy": 0})
+        step = env.step({"action": "set_magnification", "mag": 7})
+        step.error  # 被拒绝（MAG_NOT_PRESET），格式与 REST 相同
 
-if __name__ == "__main__":  # VecEnv 用 spawn 启动工作进程，脚本必须有这个保护
-    with VecEnv(8, manifest="configs/slides/manifest.yaml", slide_dir="data/slides") as vec:
-        steps = vec.reset(["c16_fa751c"] * 8)  # 每个环境一个工作进程
+    with VecEnv(8, manifest=demo_manifest()) as vec:  # 每个环境一个工作进程
+        steps = vec.reset(["c16_29f5ca"] * 8)
         steps = vec.step([{"action": "view"}] * 8)
 ```
 
@@ -134,12 +142,17 @@ if __name__ == "__main__":  # VecEnv 用 spawn 启动工作进程，脚本必须
 
 ## 评测与部署
 
-- 评测工具在 `slidetwin/eval`，只在评测中读取 CAMELYON 标注；demo 评测报告见 [docs/EVALUATION.md](docs/EVALUATION.md)。
-- Docker：`docker run -p 7860:7860 slidetwin` 启动时下载 demo 的公开切片（`configs/slides/demo.yaml`，0.9 GB，校验 sha256）：一张 CC0 小样本和两张 CAMELYON16 淋巴结切片（一张阴性，一张有微转移）。读取自己的切片时挂载切片目录和 manifest，设置 `SLIDETWIN_MANIFEST` 指向该 manifest，并设置 `SLIDETWIN_FETCH_SLIDES=0`。`configs/slides/manifest.yaml` 是 [docs/EVALUATION.md](docs/EVALUATION.md) 评测用的五张切片。
+- 评测工具在 `slidetwin/eval`，只在评测中读取 CAMELYON16 标注。[docs/EVALUATION.md](docs/EVALUATION.md) 报告了基线 agent 在 `configs/slides/manifest.yaml` 中五张 CAMELYON16 切片上的结果（共 5.3 GB；demo 只含其中一张），复现步骤见该文件末尾。
+- Docker：先构建镜像，`docker build -t slidetwin .`；`docker run -p 7860:7860 slidetwin` 会先下载 demo 的公开切片（`configs/slides/demo.yaml`，0.9 GB，校验 sha256），下载完成后开始服务：一张 CC0 小样本和两张 CAMELYON16 淋巴结切片（一张阴性，一张有微转移）。读取自己的切片时：
+  - 把切片目录挂载到 `/data/slides`，把 manifest 挂载到 `/data/manifest.yaml`，并设置 `SLIDETWIN_MANIFEST=/data/manifest.yaml` 和 `SLIDETWIN_FETCH_SLIDES=0`；
+  - 容器以 uid 1000 运行，这个用户必须能读取切片；
+  - 阅片日志写在容器内的 `/tmp/slidetwin/logs`，容器删除后随之消失；要保留就挂载一个 uid 1000 可写的目录到这里。
+
+  完整命令见英文 README 的 Deployment 一节。`configs/slides/manifest.yaml` 包含 CC0 小样本和评测用的五张切片。
 - 会话保存在内存中，服务重启会结束会话，请在结束时下载轨迹。
 - GitHub Codespaces（`.devcontainer/`）：
   1. 可选，在创建之前：到 **Settings > Codespaces** 调大 **Default idle timeout**（默认 30 分钟，最长 240 分钟）。这个设置只对之后新建的 codespace 生效。
-  2. 在仓库页面选 **Code > Codespaces > Create codespace on main**。首次创建会安装依赖并下载 demo 切片（0.9 GB），一两分钟即可。之后每次启动都会自动运行服务（端口 7860），终端随后显示服务日志。
+  2. 在仓库页面选 **Code > Codespaces > Create codespace on main**。首次启动需要几分钟（安装 SlideTwin），随后在后台下载 demo 切片（0.9 GB）。之后每次启动都会自动运行服务（端口 7860），终端随后显示服务日志。
   3. 终端打印 `SlideTwin is running: https://<name>-7860.app.github.dev` 后打开这个地址。默认只有你自己能打开。如果同时提示切片仍在下载，每张切片下载完成后即可打开（一两分钟）。
   4. 要分享给别人，在 **Ports** 面板右键 7860，选 **Port Visibility > Public**。codespace 每次重启后端口都会变回私有，所以每次演示前都要重新设置。
 
@@ -148,7 +161,7 @@ if __name__ == "__main__":  # VecEnv 用 spawn 启动工作进程，脚本必须
   访客的访问不算活动：从你最后一次操作起，超过闲置时间 codespace 就会停止，最长连续运行 12 小时。在 github.com/codespaces 重新启动后，服务地址不变，切片不用重新下载；新建的 codespace 地址会变。服务日志在 `logs/server.log`。
 
   codespace 占用账号的每月额度：GitHub Free 120 核时（默认 2 核机器约 60 小时），Pro 180 核时。只要它存在，还会占用约 4 GB 存储额度（Free 每月 15 GB-month）。关闭浏览器标签页并不会停止它：演示结束后请停止 codespace，长期不用时删除。GitHub 的条款允许把 codespace 用于开发和测试（比如短期演示），不允许当作长期公开服务。
-- 病理专家试点见 [docs/PILOT.md](docs/PILOT.md)；代价参数可用 `python scripts/calibrate_costs.py` 从人类日志拟合。
+- 病理专家试点见 [docs/PILOT.md](docs/PILOT.md)；代价参数可用 `python scripts/calibrate_costs.py LOGS --fitted fitted.yaml` 从人类日志（`LOGS` 为轨迹文件或目录）拟合。
 
 ## 文档
 
@@ -158,7 +171,7 @@ if __name__ == "__main__":  # VecEnv 用 spawn 启动工作进程，脚本必须
 
 ## 数据
 
-本仓库不包含任何切片、患者数据或公司数据。切片从 `SLIDETWIN_SLIDE_DIR` 读取，清单在 `configs/slides/manifest.yaml`。
+本仓库不包含任何切片、患者数据或公司数据。切片从 `SLIDETWIN_SLIDE_DIR` 读取，并在清单中列出（`configs/slides/demo.yaml`、`configs/slides/manifest.yaml`）。
 
 ## 许可
 

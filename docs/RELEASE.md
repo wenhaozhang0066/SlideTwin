@@ -37,7 +37,10 @@ What is ready for the open-source release, and the steps only the owner can take
    nothing private; keep or remove them.
 6. **Citation.** CITATION.cff names "SlideTwin contributors": add the authors and, if wanted, a
    Zenodo DOI.
-7. **Release.** Date the release in CHANGELOG.md, tag `v0.1.0` and push the tag.
+7. **Release.** In README.md and README_zh.md, replace the install from a checkout with
+   `pip install "slidetwin[all]"` (the extras likewise, e.g. `pip install "slidetwin[openslide]"`)
+   and drop "on PyPI at the open-source release" from the status table. Date the release in
+   CHANGELOG.md, tag `v0.1.0` and push the tag.
 8. **Optional: the image on a Hugging Face Space.** The Space's README.md starts with
    `deploy/hf_space_readme_header.md` (the Space settings: Docker SDK, port 7860), then the
    repository's README.md. Set the variables `SLIDETWIN_ALLOWED_HOSTS`,

@@ -293,3 +293,16 @@ def test_command_line_runs_an_agent(
     assert json.loads(capsys.readouterr().out)["accepted"] is True
     with pytest.raises(SystemExit):
         main(["llm", "--backend", "openai", "--env", url, "--slide", "syn_tissue"])
+
+
+def test_an_unreachable_server_is_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    down = ["serpentine", "--env", "http://127.0.0.1:9", "--slide", "s1"]  # nothing listens
+    monkeypatch.delenv("SLIDETWIN_DEBUG", raising=False)
+    with pytest.raises(SystemExit) as stop:
+        main(down)
+    assert str(stop.value.code).startswith("slidetwin agents: ")
+    assert "SLIDETWIN_DEBUG=1 shows the traceback" in str(stop.value.code)
+    monkeypatch.setenv("SLIDETWIN_DEBUG", "1")
+    with pytest.raises(Exception) as err:  # noqa: PT011 (whatever the transport raises)
+        main(down)
+    assert not isinstance(err.value, SystemExit)

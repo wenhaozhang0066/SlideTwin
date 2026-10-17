@@ -147,7 +147,7 @@ def resolve_mpp(raw_x: Any, raw_y: Any, override: Point | None, name: str) -> Po
         raise SlideMetadataError(
             f"Slide '{name}' has no usable resolution (mpp) in its {origin}; refusing to guess.",
             hint="If the scanner resolution is known from another source, set mpp_override "
-            "{x, y, source} for this slide in configs/slides/manifest.yaml.",
+            "{x, y, source} for this slide in the manifest.",
         )
     return (mx, my)
 
@@ -391,7 +391,7 @@ def open_slide(
     if not path.is_file():
         raise SlideNotFound(
             f"The file for slide '{name}' was not found.",
-            hint="Check SLIDETWIN_SLIDE_DIR and the path in configs/slides/manifest.yaml.",
+            hint="Check the slide folder (SLIDETWIN_SLIDE_DIR) and the slide's manifest path.",
         )
     if backend == "tiffslide":
         return TiffSlideSource(path, name=name, mpp_override=mpp_override)

@@ -218,3 +218,5 @@ def test_the_config_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     shutil.rmtree(tmp_path / "configs")
     monkeypatch.setattr(config_mod, "_PACKAGE", tmp_path / "site" / "slidetwin")
     assert config_mod.default_config_dir({}) == Path("configs")  # none: loading names it
+    monkeypatch.setenv("SLIDETWIN_CONFIG_DIR", str(tmp_path / "c"))
+    assert config_mod.demo_manifest() == tmp_path / "c" / "slides" / "demo.yaml"

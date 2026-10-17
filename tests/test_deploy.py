@@ -73,6 +73,7 @@ def test_fetch_checks_hashes_and_keeps_good_files(
     err = capsys.readouterr().err
     for text in [
         "present",
+        "100.0% of 0.0 MB",  # a small file in MB, not 0.00 GB
         "sha256 does not match",
         "no source_url",
         "failed (HTTPStatusError",
