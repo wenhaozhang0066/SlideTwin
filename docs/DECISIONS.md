@@ -1125,3 +1125,14 @@ The owner asked for everything that can be done before the release. Done:
 - **Hugging Face Space.** `eric-1w/SlideTwin` was deleted: it never started (quota 0, see
   "Codespaces demo") and held an old version. The demo runs in GitHub Codespaces.
 
+## Release 0.1.1 (2026-10-17)
+
+- **The reading UI's default rules.** The start form listed the profiles in alphabetical order, so
+  it began with `unconstrained`, unlike the API and the pilot guide ("keep the `viewer` profile").
+  Found while recording the demo; the form now starts with `viewer`, and the browser tests check it
+  (they had been reading under `unconstrained`).
+- **Open VLM through vLLM.** Qwen3-VL-8B-Instruct (vLLM 0.11, one H200) read the three demo slides
+  through the LLM agent's OpenAI-compatible backend: about 5 s and 8-10 model turns per slide, every
+  reading replayed with 0 differences. It needs `--enable-auto-tool-choice --tool-call-parser
+  hermes` and an image limit per request, since the agent sends every view so far (README).
+

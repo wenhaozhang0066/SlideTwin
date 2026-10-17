@@ -10,8 +10,8 @@ Backends. Keys come from the environment only, never from files in the repositor
   `claude-opus-5-5` by default. Credentials: `ANTHROPIC_API_KEY` or an `ant auth login` profile.
   Refused requests are retried server-side on Anthropic's recommended fallback model.
 - `openai`: any OpenAI-compatible chat endpoint, e.g. a local vLLM serving a vision model
-  (`--base-url http://localhost:8000/v1 --model Qwen/Qwen2.5-VL-7B-Instruct`). `OPENAI_API_KEY` is
-  sent when set.
+  (`--base-url http://localhost:8000/v1 --model Qwen/Qwen3-VL-8B-Instruct`; vLLM needs tool calls on
+  and an image limit per request, see the README). `OPENAI_API_KEY` is sent when set.
 
     python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small
 """

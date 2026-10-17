@@ -2,6 +2,13 @@
 
 Versions follow semantic versioning from 1.0; until then, any release may change interfaces.
 
+## 0.1.1 (2026-10-17)
+
+- The reading UI starts with the `viewer` rules, the default of the API and of the pilot guide; it
+  showed `unconstrained` first (profiles are listed in alphabetical order).
+- README: the vLLM settings the LLM agent needs (tool calls, images per request), tested with
+  Qwen3-VL-8B-Instruct.
+
 ## 0.1.0 (2026-10-17)
 
 - Core engine: geometry, slide access, sessions with virtual-time costs, a ledger, trajectories

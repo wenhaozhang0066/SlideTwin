@@ -115,6 +115,7 @@ claude mcp add --transport http slidetwin http://localhost:7860/mcp
 ```bash
 python -m slidetwin.agents serpentine --env http://localhost:7860 --slide cmu1_small
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small   # 需要 pip install "slidetwin[llm]"，以及 ANTHROPIC_API_KEY 或 `ant auth login`
+# 也可以用本地 vLLM 部署的开源模型（如 Qwen3-VL-8B-Instruct，需开启工具调用）：命令见英文 README
 ```
 
 ## 训练接口

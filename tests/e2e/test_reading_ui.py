@@ -113,6 +113,7 @@ def test_full_reading_in_the_browser(
     expect(page.locator("#slide-select option")).to_have_count(1)
     assert page.locator("#slide-select").input_value() == "syn_tissue"
     expect(page.locator("#slide-source")).to_have_text("Source: not stated. Licence: CC0-1.0.")
+    expect(page.locator("#profile-select")).to_have_value("viewer")  # the API's default too
     page.fill("#alias", "e2e-reader")
     page.check("#timer-toggle")
     page.click("#start-button")

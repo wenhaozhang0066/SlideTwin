@@ -189,9 +189,12 @@ python -m slidetwin.agents crop --env http://localhost:7860 --slide cmu1_small  
 
 # a vision LLM: the Anthropic API (pip install "slidetwin[llm]"; ANTHROPIC_API_KEY or `ant auth login`) ...
 python -m slidetwin.agents llm --env http://localhost:7860 --slide cmu1_small --out reading.jsonl
-# ... or any OpenAI-compatible endpoint, e.g. a local vLLM
+# ... or an open model behind any OpenAI-compatible endpoint with tool calls, e.g. vLLM 0.11 or
+# later; the agent sends every view of the reading so far, hence the image limit
+vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8000 --max-model-len 65536 \
+  --enable-auto-tool-choice --tool-call-parser hermes --limit-mm-per-prompt '{"image": 40}'
 python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000/v1 \
-  --model Qwen/Qwen2.5-VL-7B-Instruct --env http://localhost:7860 --slide cmu1_small
+  --model Qwen/Qwen3-VL-8B-Instruct --env http://localhost:7860 --slide cmu1_small --max-turns 16
 ```
 
 ## Training interface

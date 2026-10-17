@@ -7,7 +7,7 @@ authors:
     given-names: "Wenhao"
     affiliation: "University of Virginia"
     email: "bdu8us@virginia.edu"
-version: 0.1.0
+version: 0.1.1
 license: Apache-2.0
 repository-code: "https://github.com/wenhaozhang0066/SlideTwin"
 abstract: >-

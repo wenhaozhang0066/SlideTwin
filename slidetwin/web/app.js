@@ -783,6 +783,8 @@ async function loadCatalogue() {
     $("slide-select").replaceChildren(...slides.slides.map((s) => option(s.id, s.id)));
     showSlideSource();
     $("profile-select").replaceChildren(...profiles.profiles.map((p) => option(p.id, `${p.id} — ${p.description}`)));
+    // The microscope-like rules by default, as for API sessions (the list is in alphabetical order).
+    if (profiles.profiles.some((p) => p.id === "viewer")) $("profile-select").value = "viewer";
     $("protocol-select").replaceChildren(...protocols.protocols.map((p) => option(p.protocol_id, p.title)));
   } catch (err) {
     say(explain(err), true);
