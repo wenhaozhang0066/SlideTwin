@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Introducing SlideTwin v0.1.1</title>
+<meta name="description" content="SlideTwin v0.1.1: a whole-slide image viewer that pathologists and AI agents read under the same rules, with a replayable log of every pixel served.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600&family=Spectral:ital,wght@0,500;0,600;1,500&display=swap">
+<link rel="canonical" href="https://wenhaozhang0066.github.io/SlideTwin/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://wenhaozhang0066.github.io/SlideTwin/">
+<meta property="og:title" content="Introducing SlideTwin v0.1.1">
+<meta property="og:description" content="SlideTwin v0.1.1: a whole-slide image viewer that pathologists and AI agents read under the same rules, with a replayable log of every pixel served.">
+<meta property="og:image" content="https://wenhaozhang0066.github.io/SlideTwin/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<style>
+/* Layout: a sticky contents rail beside one reading column; figures and charts break out wider.
+   Palette: H&E stain. Hematoxylin indigo is the accent, eosin rose the second voice, slide glass the ground. */
+:root {
+  --bg: #f6f5f9;
+  --surface: #ffffff;
+  --ink: #1c1928;
+  --muted: #5d5770;
+  --rule: #dbd7e5;
+  --hema: #39368a;
+  --hema-soft: #dfddf3;
+  --bar-soft: #bdb9e6;
+  --eosin: #b9456f;
+  --eosin-soft: #f5d9e3;
+  --teal: #1b7a77;
+  --grey: #9a94ab;
+  --good: #2c7a57;
+  --bad: #b3261e;
+  --code-bg: #efedf5;
+  --display: "Spectral", "Noto Serif SC", Georgia, serif;
+  --body: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --step--1: 0.84rem; --step-0: 1rem; --step-1: 1.2rem; --step-2: 1.5rem; --step-3: 2rem; --step-4: 3.1rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121019; --surface: #1b1826; --ink: #ebe8f4; --muted: #a49ebb; --rule: #2f2a40;
+    --hema: #aeabf5; --hema-soft: #2c2a57; --bar-soft: #5d5a9c; --eosin: #f08db2; --eosin-soft: #4d2234;
+    --teal: #5fc9c3; --grey: #6f6985; --good: #6fcf9f; --bad: #ff8a80; --code-bg: #1f1b2c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121019; --surface: #1b1826; --ink: #ebe8f4; --muted: #a49ebb; --rule: #2f2a40;
+  --hema: #aeabf5; --hema-soft: #2c2a57; --bar-soft: #5d5a9c; --eosin: #f08db2; --eosin-soft: #4d2234;
+  --teal: #5fc9c3; --grey: #6f6985; --good: #6fcf9f; --bad: #ff8a80; --code-bg: #1f1b2c;
+  color-scheme: dark;
+}
+html[data-lang="en"] [lang="zh-Hans"], html[data-lang="zh"] [lang="en"] { display: none !important; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 1.02rem; line-height: 1.65; }
+a { color: var(--hema); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--eosin); outline-offset: 2px; border-radius: 4px; }
+code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre { font-family: var(--mono); font-size: 0.86rem; line-height: 1.55; background: var(--code-bg); padding: 1rem 1.1rem; border-radius: 8px; overflow-x: auto; margin: 0; }
+pre code { background: none; padding: 0; }
+
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar-inner { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 0.55rem; }
+.brand { font-family: var(--display); font-weight: 600; font-size: 1.15rem; letter-spacing: 0.01em; color: var(--ink); text-decoration: none; }
+.brand small { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-left: 0.5rem; letter-spacing: 0.04em; }
+.lang { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; overflow: hidden; background: var(--surface); }
+.lang button { font: 500 0.82rem var(--body); border: 0; background: none; color: var(--muted); padding: 0.32rem 0.8rem; cursor: pointer; }
+.lang button[aria-pressed="true"] { background: var(--hema); color: var(--surface); }
+
+.page { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 3rem; }
+@media (max-width: 1000px) { .page { grid-template-columns: minmax(0, 1fr); gap: 0; } .rail { display: none; } }
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 4.2rem); align-self: start; padding-block: 2.5rem; font-size: 0.86rem; }
+.rail ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.15rem; }
+.rail a { display: grid; grid-template-columns: 3.4rem 1fr; gap: 0.3rem; color: var(--muted); text-decoration: none; padding: 0.3rem 0.4rem; border-radius: 6px; }
+.rail a span:first-child { font-family: var(--mono); font-size: 0.74rem; color: var(--eosin); padding-top: 0.12rem; }
+.rail a:hover, .rail a.active { background: var(--hema-soft); color: var(--ink); }
+.contents-mobile { display: none; }
+@media (max-width: 1000px) { .contents-mobile { display: block; margin-top: 1.2rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); padding: 0.4rem 0.9rem; } .contents-mobile ol { margin: 0.3rem 0 0.6rem; padding-left: 1.2rem; } }
+
+main { min-width: 0; padding-block: 2.5rem 5rem; }
+.col { max-width: 46rem; }
+.hero { padding-block: 1rem 2rem; }
+.eyebrow { font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--eosin); }
+h1 { font-family: var(--display); font-weight: 600; font-size: var(--step-4); line-height: 1.05; margin: 0.4rem 0 0.8rem; text-wrap: balance; letter-spacing: -0.01em; }
+h1 em { font-style: italic; color: var(--hema); }
+h1 .ver { font-family: var(--mono); font-size: 0.34em; font-weight: 500; color: var(--muted); letter-spacing: 0; vertical-align: 0.55em; }
+h1 em[lang="zh-Hans"] { font-style: normal; font-family: "Noto Serif SC", var(--display); font-weight: 600; }
+@media (max-width: 640px) { h1 { font-size: 2.4rem; } h1 em { font-size: 0.78em; } }
+.lede { font-size: var(--step-1); line-height: 1.55; color: var(--ink); max-width: 40rem; margin: 0 0 1.2rem; text-wrap: pretty; }
+.byline { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.2rem; }
+.byline sup { font-size: 0.68em; }
+.byline .aff { display: block; font-size: 0.85rem; margin-top: 0.15rem; }
+.buttons { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 1.4rem; }
+.btn { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 500; font-size: 0.9rem; text-decoration: none; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); padding: 0.45rem 0.95rem; border-radius: 999px; }
+.btn:hover { border-color: var(--hema); }
+.btn.primary { background: var(--hema); color: var(--surface); border-color: var(--hema); }
+.btn.soon { color: var(--muted); border-style: dashed; cursor: default; }
+.install { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; font-family: var(--mono); font-size: 0.88rem; background: var(--code-bg); border-radius: 8px; padding: 0.55rem 0.8rem; width: fit-content; max-width: 100%; }
+.install code { background: none; padding: 0; white-space: nowrap; overflow-x: auto; }
+.install button { font: 500 0.78rem var(--body); border: 1px solid var(--rule); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 0.2rem 0.6rem; cursor: pointer; }
+.warn { margin-top: 0.9rem; font-size: 0.85rem; color: var(--muted); }
+
+figure { margin: 2rem 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--rule); background: var(--surface); }
+figcaption { font-size: 0.88rem; color: var(--muted); margin-top: 0.6rem; line-height: 1.5; max-width: 46rem; }
+.teaser, .wide { max-width: 60rem; }
+.fig-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; max-width: 60rem; }
+@media (max-width: 640px) { .fig-pair { grid-template-columns: minmax(0, 1fr); } }
+
+section { padding-top: 3.2rem; scroll-margin-top: 4rem; }
+section > .eyebrow { display: inline-flex; gap: 0.6rem; align-items: baseline; }
+h2 { font-family: var(--display); font-weight: 600; font-size: var(--step-3); line-height: 1.15; margin: 0.35rem 0 1rem; text-wrap: balance; }
+h3 { font-family: var(--body); font-weight: 600; font-size: var(--step-1); margin: 2rem 0 0.6rem; }
+p { margin: 0 0 1rem; text-wrap: pretty; }
+ul.points { padding-left: 1.2rem; margin: 0 0 1.2rem; display: grid; gap: 0.55rem; }
+ul.points li::marker { color: var(--eosin); }
+
+.tldr { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--eosin); border-radius: 8px; padding: 1.1rem 1.3rem; margin: 1.5rem 0 0; max-width: 46rem; }
+.tldr p:last-child { margin-bottom: 0; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--rule); margin: 1.8rem 0 0; max-width: 60rem; }
+.stat { padding: 1rem 0.9rem; border-left: 1px solid var(--rule); }
+.stat:first-child { border-left: 0; padding-left: 0; }
+.stat b { display: block; font-family: var(--display); font-size: var(--step-3); font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--hema); }
+.stat span { font-size: 0.84rem; color: var(--muted); }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(3) { border-left: 0; padding-left: 0; } .stat { border-top: 1px solid var(--rule); } .stat:nth-child(-n+2) { border-top: 0; } }
+
+.arch { display: grid; gap: 0.5rem; margin: 1.6rem 0 1.8rem; max-width: 46rem; font-size: 0.86rem; }
+.arch-row { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 0.5rem; }
+@media (max-width: 640px) { .arch-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .arch-row > .arch-box:last-child:nth-child(odd) { grid-column: 1 / -1; } }
+.arch-box { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 0.55rem 0.7rem; line-height: 1.35; }
+.arch-box b { display: block; font-weight: 600; }
+.arch-box small { color: var(--muted); font-size: 0.78rem; }
+.arch-box.who { border-top: 3px solid var(--eosin); }
+.arch-box.core { border-top: 3px solid var(--hema); }
+.arch-box.out { border-top: 3px solid var(--teal); }
+.arch-link { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); text-align: center; padding: 0.15rem 0; }
+.arch-link::before { content: "\2193  "; color: var(--hema); }
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; margin: 1rem 0 1.4rem; max-width: 46rem; }
+@media (max-width: 640px) { .rules { grid-template-columns: minmax(0, 1fr); } }
+.rule { border: 1px solid var(--rule); border-radius: 8px; padding: 0.8rem 0.95rem; background: var(--surface); font-size: 0.93rem; }
+.rule b { font-family: var(--mono); color: var(--eosin); margin-right: 0.4rem; }
+
+.table-wrap { overflow-x: auto; margin: 1.2rem 0 1.4rem; max-width: 60rem; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+thead th { font-weight: 600; background: var(--code-bg); }
+th[scope="row"] { font-weight: 500; color: var(--muted); white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+.chart-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 1.1rem 1.2rem 1rem; margin: 1.4rem 0 1.6rem; max-width: 60rem; }
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.8rem; align-items: baseline; }
+.chart-head h4 { margin: 0; font-size: 1.02rem; font-weight: 600; }
+.chart-head p { margin: 0.2rem 0 0; font-size: 0.86rem; color: var(--muted); max-width: 40rem; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.8rem 0 0.4rem; }
+.tabs button { font: 500 0.82rem var(--body); border: 1px solid var(--rule); background: var(--bg); color: var(--muted); padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { border-color: var(--hema); color: var(--ink); background: var(--hema-soft); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.82rem; color: var(--muted); margin: 0.4rem 0 0.2rem; }
+.legend i { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: -0.1rem; }
+.chart { width: 100%; min-height: 120px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--ink); font-family: var(--body); }
+.chart .axis text, .chart .val { fill: var(--muted); font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .grid line { stroke: var(--rule); }
+.chart .ref line { stroke: var(--eosin); stroke-dasharray: 4 3; }
+.chart .ref text { fill: var(--eosin); font-family: var(--mono); font-size: 11px; }
+.note { font-size: 0.84rem; color: var(--muted); margin-top: 0.4rem; }
+
+.full-table { max-width: 60rem; margin: 0.4rem 0 1.6rem; }
+.full-table summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; padding: 0.4rem 0; color: var(--hema); }
+.full-table table { font-size: 0.82rem; }
+.full-table td, .full-table th { padding: 0.45rem 0.6rem; white-space: nowrap; }
+.findings { counter-reset: f; list-style: none; padding: 0; display: grid; gap: 0.9rem; margin: 1rem 0 1.4rem; max-width: 46rem; }
+.findings li { counter-increment: f; display: grid; grid-template-columns: 2rem 1fr; gap: 0.6rem; }
+.findings li::before { content: counter(f); font-family: var(--mono); font-size: 0.8rem; color: var(--surface); background: var(--hema); width: 1.6rem; height: 1.6rem; border-radius: 50%; display: grid; place-items: center; margin-top: 0.15rem; }
+
+.receipt { font-family: var(--mono); font-size: 0.82rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 0.9rem 1rem; max-width: 46rem; overflow-x: auto; }
+.receipt div { display: grid; grid-template-columns: 3rem 4rem 1fr; gap: 0.5rem; padding: 0.2rem 0; }
+.receipt .pass { color: var(--good); }
+.receipt .fail { color: var(--bad); font-weight: 500; }
+
+.cite pre { font-size: 0.8rem; }
+footer { border-top: 1px solid var(--rule); margin-top: 4rem; padding-block: 1.6rem; color: var(--muted); font-size: 0.85rem; }
+</style>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">SlideTwin<small>v0.1.1</small></a>
+    <div class="lang" role="group" aria-label="Language / 语言">
+      <button type="button" id="lang-en" data-set-lang="en" aria-pressed="true">EN</button>
+      <button type="button" id="lang-zh" data-set-lang="zh" aria-pressed="false">中文</button>
+    </div>
+  </div>
+</header>
+
+<div class="page" id="top">
+  <nav class="rail" aria-label="Contents">
+    <ol>
+      <li><a href="#why"><span>1.25×</span><span lang="en">Why SlideTwin</span><span lang="zh-Hans">为什么需要</span></a></li>
+      <li><a href="#what"><span>2.5×</span><span lang="en">What it is</span><span lang="zh-Hans">它是什么</span></a></li>
+      <li><a href="#qupath"><span>5×</span><span lang="en">vs QuPath</span><span lang="zh-Hans">与 QuPath</span></a></li>
+      <li><a href="#agents"><span>10×</span><span lang="en">Agents today</span><span lang="zh-Hans">现有 agent</span></a></li>
+      <li><a href="#replay"><span>20×</span><span lang="en">A replay</span><span lang="zh-Hans">阅片回放</span></a></li>
+      <li><a href="#reading"><span>40×</span><span lang="en">One reading</span><span lang="zh-Hans">一次阅片</span></a></li>
+      <li><a href="#limits"><span>—</span><span lang="en">Limits</span><span lang="zh-Hans">局限</span></a></li>
+      <li><a href="#start"><span>—</span><span lang="en">Get started</span><span lang="zh-Hans">上手</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <div class="eyebrow"><span lang="en">Research prototype · not for clinical use</span><span lang="zh-Hans">研究原型 · 不用于临床</span></div>
+      <h1>SlideTwin <span class="ver">v0.1.1</span><br><em lang="en">reads the slide the way a microscope does</em><em lang="zh-Hans">像显微镜一样阅片</em></h1>
+      <p class="lede" lang="en">A whole-slide image viewer that pathologists and AI agents read under the same rules. Every pixel an agent sees comes from a logged action, in micrometres and seconds, so each conclusion can be checked against what was actually looked at.</p>
+      <p class="lede" lang="zh-Hans">一个让病理医生和 AI agent 在同一套规则下阅读全切片图像的模拟器。agent 看到的每个像素都来自一次有记录的操作，以微米和秒计量，因此每个结论都能对照它真正看过的画面来核验。</p>
+      <div class="byline">Wenhao Zhang<sup>1</sup>, Zhongliang Zhou<sup>2</sup>, Sheng Li<sup>1</sup><span class="aff"><sup>1</sup>School of Data Science, University of Virginia · <sup>2</sup>Merck &amp; Co., Inc.</span></div>
+      <div class="buttons">
+        <a class="btn primary" href="https://github.com/wenhaozhang0066/SlideTwin">GitHub</a>
+        <a class="btn" href="https://pypi.org/project/slidetwin/">PyPI</a>
+        <a class="btn" href="https://codespaces.new/wenhaozhang0066/SlideTwin"><span lang="en">Live demo (Codespaces)</span><span lang="zh-Hans">在线演示（Codespaces）</span></a>
+        <span class="btn soon"><span lang="en">Paper: coming soon</span><span lang="zh-Hans">论文：即将发布</span></span>
+      </div>
+      <div class="install"><code id="install-cmd">pip install "slidetwin[all]"</code><button type="button" id="copy-install"><span lang="en">Copy</span><span lang="zh-Hans">复制</span></button></div>
+      <details class="contents-mobile">
+        <summary><span lang="en">Contents</span><span lang="zh-Hans">目录</span></summary>
+        <ol>
+          <li><a href="#why"><span lang="en">Why SlideTwin</span><span lang="zh-Hans">为什么需要 SlideTwin</span></a></li>
+          <li><a href="#what"><span lang="en">What it is</span><span lang="zh-Hans">它是什么</span></a></li>
+          <li><a href="#qupath"><span lang="en">SlideTwin and QuPath</span><span lang="zh-Hans">SlideTwin 与 QuPath</span></a></li>
+          <li><a href="#agents"><span lang="en">Agents today</span><span lang="zh-Hans">现有 agent 系统</span></a></li>
+          <li><a href="#replay"><span lang="en">What a replay shows</span><span lang="zh-Hans">回放能看到什么</span></a></li>
+          <li><a href="#reading"><span lang="en">One reading, step by step</span><span lang="zh-Hans">一次阅片的全过程</span></a></li>
+          <li><a href="#limits"><span lang="en">Limits</span><span lang="zh-Hans">局限</span></a></li>
+          <li><a href="#start"><span lang="en">Get started</span><span lang="zh-Hans">上手</span></a></li>
+        </ol>
+      </details>
+    </div>
+
+    <figure class="teaser">
+      <img src="assets/reading.gif" width="960" height="600" alt="A reading of the CC0 test slide in the SlideTwin web UI: overview, preset magnifications, a measurement in micrometres, a polygon and the report receipt.">
+      <figcaption lang="en">A reading in the web UI, on a CC0 test slide (OpenSlide test data): the slide overview, preset magnifications, a 153 µm measurement at 20×, a polygon and the report receipt. Each frame was served by one logged action.</figcaption>
+      <figcaption lang="zh-Hans">在网页界面中阅读一张 CC0 测试切片（OpenSlide 测试数据）：切片概览、预设倍率、20× 下 153 µm 的测量、多边形标注和报告回执。每一帧都由一次有记录的操作提供。</figcaption>
+    </figure>
+
+    <div class="tldr">
+      <p lang="en"><b>In short.</b> Agents that read whole-slide images already pan and zoom, but each does so inside its own harness, where pixels cost nothing, coordinates are private and only the final answer is scored. SlideTwin is a common environment for people and agents: microscope rules, physical units, a virtual clock, a log of every pixel served and rule checks on every report. A pathologist in the browser and an agent over REST, MCP or Python use the same session, so any reading can be replayed step by step and checked against what was actually seen.</p>
+      <p lang="zh-Hans"><b>一句话概括。</b>现在读全切片的 agent 已经会平移和缩放，但都在各自的测试框架里进行：像素不计代价，坐标各自定义，最后只按答案打分。SlideTwin 为人和 agent 提供一个统一的环境：显微镜式规则、物理单位、虚拟时钟、记录每个像素的日志，以及对每份报告的规则核验。浏览器里的病理医生和通过 REST、MCP 或 Python 接入的 agent 使用同一个会话，因此任何一次阅片都能逐步重放，并对照真正看过的内容加以核验。</p>
+    </div>
+
+    <section id="why" class="col">
+      <div class="eyebrow"><span>1.25×</span><span lang="en">The big picture</span><span lang="zh-Hans">全局</span></div>
+      <h2 lang="en">Why SlideTwin</h2><h2 lang="zh-Hans">为什么需要 SlideTwin</h2>
+      <p lang="en">A pathologist reads a slide by moving a field of view across the tissue at a handful of magnifications, and a report that says “no metastasis” rests on having looked at the whole node. Today's agents navigate too: CPathAgent zooms and moves like a pathologist, and GIANT pans and zooms by requesting crops. But each defines its own actions, coordinates and costs inside its own harness, where any region arrives at full resolution for free and only the final answer is scored.</p>
+      <p lang="zh-Hans">病理医生阅片时，会在几个固定倍率下移动视野扫过组织，而一份写着“未见转移”的报告，前提是整个淋巴结都看过了。现在的 agent 也会导航：CPathAgent 像病理医生一样放大、移动，GIANT 通过请求裁图来平移和缩放。可它们都在各自的测试框架里自定动作、坐标和代价：任何区域一步就能免费拿到全分辨率图像，最后只给最终答案打分。</p>
+      <p lang="en">Navigation alone therefore cannot tell us whether an agent looked at the evidence it cites, searched enough tissue to support a negative, or read as a pathologist would under the same constraints. SlideTwin gives agents and people the same viewer, clock and log, so these questions have answers.</p>
+      <p lang="zh-Hans">所以单凭会导航，回答不了这些问题：agent 看过它引用的证据吗？搜索的组织够支撑阴性结论吗？同样约束下，它和病理医生读得一样吗？SlideTwin 让人和 agent 共用同一个阅片器、时钟和日志，这些问题才有答案。</p>
+    </section>
+
+    <section id="what" class="col">
+      <div class="eyebrow"><span>2.5×</span><span lang="en">The environment</span><span lang="zh-Hans">环境</span></div>
+      <h2 lang="en">What SlideTwin is</h2><h2 lang="zh-Hans">SlideTwin 是什么</h2>
+      <ul class="points">
+        <li lang="en"><b>One rule set for people and agents.</b> The web UI uses the same session API as REST, MCP and the Python training interface, so a pathologist's reading and an agent's reading are made of the same actions.</li>
+        <li lang="zh-Hans"><b>人和 agent 同一套规则。</b>网页界面与 REST、MCP、Python 训练接口共用同一个会话 API，病理医生和 agent 的阅片由同样的动作构成。</li>
+        <li lang="en"><b>Every pixel is logged.</b> Views, thumbnails and crops are actions. The log is the reading: replaying it re-renders every image and compares hashes. In our tests, all <span data-k="replayed"></span> replayed readings matched with 0 differences.</li>
+        <li lang="zh-Hans"><b>每个像素都有记录。</b>视野、缩略图和裁图都是动作。日志就是阅片本身：重放时会重新渲染每张图像并比对哈希。在我们的测试中，重放的 <span data-k="replayed"></span> 次阅片全部一致，差异为 0。</li>
+        <li lang="en"><b>Physical units.</b> Positions and distances are in micrometres from the slide's corner; time runs on a virtual clock that charges each action, as a viewer would.</li>
+        <li lang="zh-Hans"><b>物理单位。</b>位置和距离以切片左上角为原点、以微米计；时间是虚拟时钟，像真实阅片器那样给每个动作计时。</li>
+        <li lang="en"><b>Two rule profiles.</b> <code>viewer</code> gives preset magnifications, a fixed field of view and action costs. <code>unconstrained</code> allows free thumbnails and arbitrary crops, which is what most agent harnesses allow, so the two can be compared on the same slide.</li>
+        <li lang="zh-Hans"><b>两套规则档。</b><code>viewer</code>：预设倍率、固定视野、动作有代价。<code>unconstrained</code>：缩略图和任意裁图随取随用，相当于大多数 agent 框架的做法。两者可以在同一张切片上直接对比。</li>
+        <li lang="en"><b>Every common format</b>, chosen by content: Aperio SVS, Hamamatsu NDPI, 3DHistech MRXS, DICOM WSI, Zeiss CZI, Leica SCN, Ventana BIF, Philips TIFF and iSyntax, OME-TIFF and more.</li>
+        <li lang="zh-Hans"><b>支持常见格式</b>，按文件内容自动选择读取器：Aperio SVS、Hamamatsu NDPI、3DHistech MRXS、DICOM WSI、Zeiss CZI、Leica SCN、Ventana BIF、Philips TIFF 与 iSyntax、OME-TIFF 等。</li>
+      </ul>
+      <figure class="arch" role="img" aria-label="SlideTwin architecture: four ways in share one session API with rule profiles, a virtual clock and protocol checks; slides are read by format readers and every pixel served is logged, which allows replay and evaluation.">
+        <div class="arch-row" style="--n:4">
+          <div class="arch-box who"><b lang="en">Pathologist</b><b lang="zh-Hans">病理医生</b><small lang="en">web UI, keyboard</small><small lang="zh-Hans">网页界面，键盘操作</small></div>
+          <div class="arch-box who"><b>REST</b><small lang="en">any HTTP client</small><small lang="zh-Hans">任意 HTTP 客户端</small></div>
+          <div class="arch-box who"><b>MCP</b><small lang="en">tool-using agents</small><small lang="zh-Hans">会调用工具的 agent</small></div>
+          <div class="arch-box who"><b>Env / VecEnv</b><small lang="en">training in process</small><small lang="zh-Hans">进程内训练</small></div>
+        </div>
+        <div class="arch-link"><span lang="en">one session API: the same actions for everyone</span><span lang="zh-Hans">同一个会话 API：所有人用同样的动作</span></div>
+        <div class="arch-row" style="--n:3">
+          <div class="arch-box core"><b lang="en">Rule profile</b><b lang="zh-Hans">规则档</b><small lang="en">viewer: presets, fixed field · unconstrained: crops</small><small lang="zh-Hans">viewer：预设倍率、固定视野；unconstrained：任意裁图</small></div>
+          <div class="arch-box core"><b lang="en">Virtual clock</b><b lang="zh-Hans">虚拟时钟</b><small lang="en">seconds charged per action</small><small lang="zh-Hans">每个动作按秒计费</small></div>
+          <div class="arch-box core"><b lang="en">Protocol checks</b><b lang="zh-Hans">协议核验</b><small lang="en">E1–E4 and tissue coverage on each report</small><small lang="zh-Hans">每份报告核验 E1–E4 与组织覆盖率</small></div>
+        </div>
+        <div class="arch-link"><span lang="en">pixels only through actions</span><span lang="zh-Hans">像素只能通过动作获取</span></div>
+        <div class="arch-row" style="--n:2">
+          <div class="arch-box core"><b lang="en">Format readers</b><b lang="zh-Hans">格式读取器</b><small>SVS · NDPI · MRXS · DICOM · CZI · SCN · BIF · iSyntax · OME‑TIFF</small></div>
+          <div class="arch-box core"><b lang="en">The log</b><b lang="zh-Hans">日志</b><small lang="en">every action and image, in µm and seconds, with hashes</small><small lang="zh-Hans">每个动作与图像，以微米和秒计，附哈希值</small></div>
+        </div>
+        <div class="arch-link"><span lang="en">afterwards, from the log alone</span><span lang="zh-Hans">事后只凭日志即可</span></div>
+        <div class="arch-row" style="--n:2">
+          <div class="arch-box out"><b lang="en">Replay</b><b lang="zh-Hans">重放</b><small lang="en">re-renders every image and compares hashes</small><small lang="zh-Hans">重新渲染每张图像并比对哈希</small></div>
+          <div class="arch-box out"><b lang="en">Evaluation</b><b lang="zh-Hans">评估</b><small lang="en">lesion metrics, coverage maps, reading paths</small><small lang="zh-Hans">病灶指标、覆盖图、阅片路径</small></div>
+        </div>
+      </figure>
+      <h3 lang="en">Rules checked on every report</h3><h3 lang="zh-Hans">每份报告都要通过的规则</h3>
+      <div class="rules">
+        <div class="rule" lang="en"><b>E1</b>Every view a claim cites was served in this session.</div>
+        <div class="rule" lang="zh-Hans"><b>E1</b>结论引用的每个视野都必须在本次会话中出现过。</div>
+        <div class="rule" lang="en"><b>E2</b>A positive finding was seen at 20× or more.</div>
+        <div class="rule" lang="zh-Hans"><b>E2</b>阳性发现必须在 20× 或更高倍率下看到过。</div>
+        <div class="rule" lang="en"><b>E3</b>Measurements span enough pixels, and the category fits the reported size.</div>
+        <div class="rule" lang="zh-Hans"><b>E3</b>测量要跨越足够的像素，分类要与所报的大小相符。</div>
+        <div class="rule" lang="en"><b>E4</b>A negative claim covers its tissue: 98% seen at 10× or more.</div>
+        <div class="rule" lang="zh-Hans"><b>E4</b>阴性结论必须覆盖相应组织：10× 以上看过 98%。</div>
+      </div>
+      <p class="note" lang="en">The thresholds come from the protocol file and are drafts awaiting pathologist review.</p>
+      <p class="note" lang="zh-Hans">这些阈值写在协议文件里，目前是草案，有待病理医生审定。</p>
+      <h3 lang="en">Three ways in</h3><h3 lang="zh-Hans">三种接入方式</h3>
+      <pre><code>pip install "slidetwin[all]"
+slidetwin serve --demo        # web UI, REST and MCP on http://127.0.0.1:7860
+
+# in-process, for training: the same rules, costs and logs, no HTTP
+from slidetwin.env import Env, demo_manifest
+with Env(demo_manifest()) as env:
+    step = env.reset("c16_29f5ca")                        # first view, slide, task, rules
+    step = env.step({"action": "set_magnification", "mag": 10})
+    step.image.shape, step.cost_s, step.elapsed_s          # (1024, 1280, 3), 0.8, 1.1</code></pre>
+    </section>
+
+    <section id="qupath">
+      <div class="eyebrow"><span>5×</span><span lang="en">Neighbours</span><span lang="zh-Hans">近邻</span></div>
+      <div class="col">
+        <h2 lang="en">SlideTwin and QuPath</h2><h2 lang="zh-Hans">SlideTwin 与 QuPath</h2>
+        <p lang="en">QuPath (Bankhead et al., 2017) is the open-source workhorse for viewing and analysing whole-slide images, and its view tracker can record where a person looked. SlideTwin does not replace it. QuPath answers “what is in this slide?” SlideTwin answers “how was this slide read, and does the conclusion follow from what was seen?”</p>
+        <p lang="zh-Hans">QuPath（Bankhead 等，2017）是查看和分析全切片图像的主力开源工具，它的视图追踪器（View tracker）也能记录一个人看过哪里。SlideTwin 不是要取代它：QuPath 回答“这张切片里有什么”，SlideTwin 回答“这张切片是怎么读的，结论是否来自看过的内容”。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col"></th><th scope="col">QuPath</th><th scope="col">SlideTwin</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span lang="en">Built for</span><span lang="zh-Hans">定位</span></th>
+              <td><span lang="en">Interactive image analysis: annotation, cell detection, biomarker scoring, scripting</span><span lang="zh-Hans">交互式图像分析：标注、细胞检测、生物标志物评分、脚本</span></td>
+              <td><span lang="en">Measuring how a slide is read, by people or agents, under shared rules</span><span lang="zh-Hans">在统一规则下，度量人或 agent 如何阅片</span></td></tr>
+            <tr><th scope="row"><span lang="en">Access to pixels</span><span lang="zh-Hans">像素访问</span></th>
+              <td><span lang="en">Unrestricted: any region at any resolution, for people and scripts</span><span lang="zh-Hans">不受限：人和脚本都能取任意区域、任意分辨率</span></td>
+              <td><span lang="en">Only through logged actions; a profile sets what is allowed (fields, presets, crops) and what each costs</span><span lang="zh-Hans">只能通过有记录的动作；规则档决定允许什么（视野、预设倍率、裁图）以及代价</span></td></tr>
+            <tr><th scope="row"><span lang="en">Record of a reading</span><span lang="zh-Hans">阅片记录</span></th>
+              <td><span lang="en">View tracker: viewer position over time, for playback and time heatmaps</span><span lang="zh-Hans">视图追踪器：记录视野位置随时间的变化，可回放并生成停留热图</span></td>
+              <td><span lang="en">Every action and every pixel served, with hashes; replays bit-exactly</span><span lang="zh-Hans">每个动作、提供的每个像素及其哈希值；可逐像素重放</span></td></tr>
+            <tr><th scope="row"><span lang="en">Checks on conclusions</span><span lang="zh-Hans">结论核验</span></th>
+              <td><span lang="en">None built in</span><span lang="zh-Hans">无内置核验</span></td>
+              <td><span lang="en">Rules E1–E4 and tissue coverage on every report</span><span lang="zh-Hans">每份报告都核验 E1–E4 和组织覆盖率</span></td></tr>
+            <tr><th scope="row"><span lang="en">Time</span><span lang="zh-Hans">时间</span></th>
+              <td><span lang="en">Wall-clock, for a person</span><span lang="zh-Hans">真实时间，仅限人工操作</span></td>
+              <td><span lang="en">A virtual clock that charges people and agents alike</span><span lang="zh-Hans">虚拟时钟，人和 agent 一样计时</span></td></tr>
+            <tr><th scope="row"><span lang="en">For agents</span><span lang="zh-Hans">面向 agent</span></th>
+              <td><span lang="en">Groovy scripting and extensions, with full access</span><span lang="zh-Hans">Groovy 脚本和扩展，完全访问权限</span></td>
+              <td><span lang="en">REST, MCP tools and a gym-style <code>Env</code>/<code>VecEnv</code> for training</span><span lang="zh-Hans">REST、MCP 工具，以及用于训练的 gym 风格 <code>Env</code>/<code>VecEnv</code></span></td></tr>
+            <tr><th scope="row"><span lang="en">Licence</span><span lang="zh-Hans">许可</span></th><td>GPL-3.0</td><td>Apache-2.0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="agents" class="col">
+      <div class="eyebrow"><span>10×</span><span lang="en">Screening the field</span><span lang="zh-Hans">筛查现状</span></div>
+      <h2 lang="en">Why today's agent systems need a common environment</h2><h2 lang="zh-Hans">现有 agent 系统为什么需要一个统一环境</h2>
+      <p lang="en">Recent systems take different routes. GIANT lets a general multimodal model pan and zoom over a slide by requesting crops, and argues that thumbnail and random-patch evaluations underestimated these models. CPathAgent navigates with zoom and move steps that mimic a pathologist. PathFinder's agents pick regions from fixed-size patches. Many evaluations of general models give them a single downsampled thumbnail. Each is a real step forward. What they share is the measuring stick, and it has gaps:</p>
+      <p lang="zh-Hans">近来的系统路线各不相同：GIANT 让通用多模态模型通过请求裁图在切片上平移和缩放，并指出只用缩略图或随机小块的评测低估了这些模型；CPathAgent 以模仿病理医生的放大、移动步骤来导航；PathFinder 的 agent 从固定大小的小块中挑选区域；许多通用模型的评测只给一张降采样的缩略图。它们各有进步，但共用的那把尺子有缺口：</p>
+      <ul class="points">
+        <li lang="en"><b>Pixels are free.</b> A harness can return any region at full resolution in one step, with no time attached. A microscope does not work that way, and behaviour learned in such a harness may not carry over to a viewer.</li>
+        <li lang="zh-Hans"><b>像素是免费的。</b>测试框架一步就能返回任意区域的全分辨率图像，也不计时间。显微镜不是这样工作的，在这种框架里学到的行为未必能迁移到真实阅片器上。</li>
+        <li lang="en"><b>Answers are scored, evidence is not.</b> A correct “metastasis present” counts the same whether or not the agent ever looked at the tumour.</li>
+        <li lang="zh-Hans"><b>只给答案打分，不看证据。</b>一个正确的“有转移”，不管 agent 有没有看过肿瘤，得分都一样。</li>
+        <li lang="en"><b>Negatives come without a search.</b> “No metastasis” is the hardest call in sentinel lymph node reading, because it needs the whole node screened; final-answer scoring rewards a guess just as much.</li>
+        <li lang="zh-Hans"><b>阴性结论不需要搜索。</b>在前哨淋巴结阅片中，“未见转移”是最难下的结论，因为要筛查整个淋巴结；只按最终答案打分，猜对一样得分。</li>
+        <li lang="en"><b>No common units.</b> Pixel coordinates change with the scanner and the pyramid level; a size in pixels is not a size in millimetres.</li>
+        <li lang="zh-Hans"><b>没有统一单位。</b>像素坐标随扫描仪和金字塔层级变化；以像素表示的大小并不是以毫米表示的大小。</li>
+        <li lang="en"><b>People and agents cannot work together.</b> They use different interfaces with different access, so a pathologist cannot step into an agent's reading, point it to a region or check its work. What the agent hands back is a list of crops or coordinates without reasons or timing: nobody can tell why it went where it went, or whether it looked at what it cites.</li>
+        <li lang="zh-Hans"><b>人和 agent 无法协作。</b>两者用的界面不同、能访问的内容不同，病理医生既不能介入 agent 的阅片、给它指一个区域，也无法检查它的工作。agent 交回来的只是一串裁图或坐标，既没有理由也没有时间：没人说得清它为什么去了那里，也不知道它是否真的看过它所引用的内容。</li>
+      </ul>
+      <p lang="en">On SlideTwin these designs become different agents in one environment, each logged, timed and checked the same way:</p>
+      <p lang="zh-Hans">在 SlideTwin 上，这些设计成为同一个环境里的不同 agent，都以同样的方式被记录、计时和核验：</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col"><span lang="en">Agent design</span><span lang="zh-Hans">agent 设计</span></th><th scope="col"><span lang="en">Rules</span><span lang="zh-Hans">规则档</span></th><th scope="col"><span lang="en">What the model can do</span><span lang="zh-Hans">模型能做什么</span></th><th scope="col"><span lang="en">Budget</span><span lang="zh-Hans">预算</span></th></tr></thead>
+          <tbody>
+            <tr><td><span lang="en">Microscope (CPathAgent-like)</span><span lang="zh-Hans">显微镜式（类 CPathAgent）</span></td><td><code>viewer</code></td><td><span lang="en">Start from the slide overview; change magnification, move, pan, measure; one 1280 × 1024 field at a time</span><span lang="zh-Hans">从切片概览开始；换倍率、移动、平移、测量；每次只看一个 1280 × 1024 视野</span></td><td class="num">24</td></tr>
+            <tr><td><span lang="en">Free crops (GIANT-style)</span><span lang="zh-Hans">任意裁图（GIANT 式）</span></td><td><code>unconstrained</code></td><td><span lang="en">Start from a thumbnail with a µm grid; request any rectangle at up to 1280 px</span><span lang="zh-Hans">从带微米网格的缩略图开始；请求任意矩形，最长边至多 1280 px</span></td><td class="num">12</td></tr>
+            <tr><td><span lang="en">Thumbnail only (slide-level)</span><span lang="zh-Hans">仅缩略图（切片级）</span></td><td><code>unconstrained</code></td><td><span lang="en">One downsampled image of the whole slide, then the answer</span><span lang="zh-Hans">看一张整片降采样图像，然后作答</span></td><td class="num">1</td></tr>
+            <tr><td><span lang="en">SlideTwin agent (tool calls)</span><span lang="zh-Hans">SlideTwin 自带 agent（工具调用）</span></td><td><code>viewer</code></td><td><span lang="en">The released agent: native tool calls, writes its own report</span><span lang="zh-Hans">随包发布的 agent：原生工具调用，自己写报告</span></td><td class="num">30</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note" lang="en">The first three use a plain-text protocol (one JSON action per reply), so models without tool calling can take part; the harness turns each answer into a SlideTwin report. The SlideTwin agent needs native tool calls.</p>
+      <p class="note" lang="zh-Hans">前三种使用纯文本协议（每次回复一个 JSON 动作），这样不支持工具调用的模型也能参与；框架把每个答案转成 SlideTwin 报告。SlideTwin 自带 agent 需要原生工具调用。</p>
+    </section>
+
+    <section id="replay">
+      <div class="eyebrow"><span>20×</span><span lang="en">A replay</span><span lang="zh-Hans">回放</span></div>
+      <div class="col">
+        <h2 lang="en">What a replay shows</h2><h2 lang="zh-Hans">回放能看到什么</h2>
+        <p lang="en">We gave an open model, Qwen3-VL-8B, a CC0 test slide under the microscope rules (CMU-1: skin, four pieces of tissue over 23 × 16 mm) and rendered its log. It jumped from the overview straight to 20×, landed on the empty glass between the pieces and panned seven times. When a field finally reached the edge of one piece, it reported a 0.8 mm micro-metastasis “in the lymph node tissue”. The receipt passes E1–E3: the cited field exists, was seen at 20×, and 0.8 mm fits the micro category, although the model never measured anything. A final answer hides what the log shows: in 7 virtual seconds the model saw 0.4% of the tissue at 10× or more.</p>
+        <p lang="zh-Hans">我们让一个开源模型 Qwen3-VL-8B 在显微镜规则下阅读一张 CC0 测试切片（CMU-1：皮肤组织，四块组织分布在 23 × 16 mm 范围内），并把日志渲染出来。它从概览直接跳到 20×，落在组织块之间的空白玻璃上，连续平移了七次；等视野终于碰到一块组织的边缘，它就报告了“淋巴结组织中”一个 0.8 mm 的微转移。回执的 E1–E3 都通过：引用的视野存在、在 20× 下看过，0.8 mm 也落在微转移的范围内，尽管模型从未做过任何测量。只看最终答案会掩盖日志揭示的事实：在 7 秒虚拟时间里，它只在 10× 以上看过 0.4% 的组织。</p>
+      </div>
+      <figure class="wide">
+        <a href="assets/replay_cmu1.gif" target="_blank" rel="noopener"><img src="assets/replay_cmu1.gif" width="1200" height="616" loading="lazy" alt="Qwen3-VL-8B's reading of the CC0 slide CMU-1 replayed step by step: a jump to 20x on empty glass, seven pans, a report of a micro-metastasis, and the single field it cites at the edge of a tissue piece."></a>
+        <figcaption lang="en">Replayed from the log. Left: the overview with each field of view (grey below 10×, rose at 20×). Right: the image the model received at that step. Last frame: the field its finding cites.</figcaption>
+        <figcaption lang="zh-Hans">由日志回放。左：概览图及每个视野（灰色为 10× 以下，玫红为 20×）。右：模型在这一步收到的图像。最后一帧：其发现所引用的视野。</figcaption>
+      </figure>
+      <div class="col">
+        <p lang="en">A negative call needs the opposite: rule E4 accepts “no metastasis” only after 98% of the tissue has been seen at 10× or more. On the same virtual clock, SlideTwin's serpentine scan needs about two minutes to get there on this slide.</p>
+        <p lang="zh-Hans">阴性结论需要的恰恰相反：按规则 E4，要在 10× 以上看过 98% 的组织，“未见转移”才成立。在同一个虚拟时钟下，SlideTwin 的蛇形扫描在这张切片上大约需要两分钟才能做到。</p>
+      </div>
+      <figure class="wide">
+        <a href="assets/race_cmu1.gif" target="_blank" rel="noopener"><img src="assets/race_cmu1.gif" width="1200" height="590" loading="lazy" alt="Two copies of the CMU-1 overview on one virtual clock: on the left the model's reading stops after 7 seconds with almost no tissue seen at 10x; on the right the serpentine scan colours all four tissue pieces as seen by 1 minute 59 seconds."></a>
+        <figcaption lang="en">Tissue seen at 10× or more (teal) as the virtual clock runs: Qwen3-VL-8B reported after 7 s with 0.4% seen; the serpentine scan had seen 100% at 1:59.</figcaption>
+        <figcaption lang="zh-Hans">随虚拟时钟推进、在 10× 以上看过的组织（青色）：Qwen3-VL-8B 在 7 秒时给出报告，只看了 0.4%；蛇形扫描在 1:59 时看完了 100%。</figcaption>
+      </figure>
+    </section>
+
+    <section id="reading">
+      <div class="eyebrow"><span>40×</span><span lang="en">Detail</span><span lang="zh-Hans">细节</span></div>
+      <div class="col">
+        <h2 lang="en">One reading, step by step</h2><h2 lang="zh-Hans">一次阅片的全过程</h2>
+        <p lang="en">Qwen3-VL-8B read the CC0 test slide through SlideTwin's own agent. In 10 model turns (6 seconds of compute, 10.8 virtual seconds) it opened the thumbnail, screened at 10×, moved, zoomed to 20×, measured twice and reported a 2.0 mm macro-metastasis. The slide is skin, not a lymph node; the answer is wrong, and the receipt says so without any ground truth:</p>
+        <p lang="zh-Hans">Qwen3-VL-8B 通过 SlideTwin 自带的 agent 阅读这张 CC0 测试切片。10 轮模型调用（计算 6 秒，虚拟时间 10.8 秒）内，它打开缩略图、在 10× 下筛查、移动、放大到 20×、测量两次，然后报告了一个 2.0 mm 的宏转移。可这张切片是皮肤，不是淋巴结，答案是错的；即使不用标准答案，回执也指出了问题：</p>
+      </div>
+      <div class="receipt" role="table" aria-label="Report receipt">
+        <div class="pass"><span>E1</span><span>pass</span><span lang="en">All cited views exist.</span><span lang="zh-Hans">引用的视野都存在。</span></div>
+        <div class="pass"><span>E2</span><span>pass</span><span lang="en">The finding was seen at 20×.</span><span lang="zh-Hans">发现是在 20× 下看到的。</span></div>
+        <div class="fail"><span>E3</span><span>fail</span><span lang="en">0.2 mm does not fit category macro (&gt; 2 mm): the agent's own measurement contradicts its report.</span><span lang="zh-Hans">0.2 mm 不符合宏转移（&gt; 2 mm）：agent 自己的测量与报告矛盾。</span></div>
+        <div class="fail"><span>E4</span><span>fail</span><span lang="en">The negative claim “no extranodal extension” gives its scope as free text, not a tissue piece or a region, so its coverage cannot be checked (78% of the tissue was seen at 10× or more).</span><span lang="zh-Hans">阴性结论“无结外侵犯”的范围写成了自由文本，而不是组织块或区域，因此无法核验其覆盖率（10× 以上实际看过 78% 的组织）。</span></div>
+      </div>
+      <figure class="wide">
+        <a href="assets/replay_cmu1_small.gif" target="_blank" rel="noopener"><img src="assets/replay_cmu1_small.gif" width="1200" height="616" loading="lazy" alt="The reading replayed step by step: the fields of view on the slide overview next to the image the agent received, two 200 micrometre measurements at 20x, the report with its receipt, and the field the finding cites."></a>
+        <figcaption lang="en">The same reading replayed from its log: each step's field of view on the overview (teal 10×, rose 20×) next to the image the agent received; the last frame shows the field its finding cites.</figcaption>
+        <figcaption lang="zh-Hans">由日志回放的同一次阅片：概览图上每一步的视野（青色 10×，玫红 20×），旁边是 agent 收到的图像；最后一帧是其发现所引用的视野。</figcaption>
+      </figure>
+      <div class="fig-pair" style="margin-top:1.4rem">
+        <figure style="margin:0">
+          <img src="assets/vlm_path.png" width="766" height="1024" alt="The fields of view the model requested, drawn over the slide: green 10x fields and one orange 20x field with two measurements.">
+          <figcaption lang="en">Where it looked: green 10× fields, the orange 20× field and its measurement.</figcaption>
+          <figcaption lang="zh-Hans">它看过哪里：绿色为 10× 视野，橙色为 20× 视野及测量线。</figcaption>
+        </figure>
+        <figure style="margin:0">
+          <img src="assets/vlm_coverage.png" width="766" height="1024" alt="Coverage map of the same reading: tissue never seen in red, seen only below 10x in orange, seen at 10x in light green and at 20x in dark green.">
+          <figcaption lang="en">What it covered: red tissue was never seen at 10× or more.</figcaption>
+          <figcaption lang="zh-Hans">它覆盖了什么：红色组织从未在 10× 以上看过。</figcaption>
+        </figure>
+      </div>
+      <p class="note col" lang="en">All pictures on this page show CC0 OpenSlide test slides (CMU-1 and a small region of it).</p>
+      <p class="note col" lang="zh-Hans">本页所有图片均来自 CC0 许可的 OpenSlide 测试切片（CMU-1 及其中的一小块区域）。</p>
+    </section>
+
+    <section id="limits" class="col">
+      <div class="eyebrow"><span>—</span><span lang="en">Limits</span><span lang="zh-Hans">局限</span></div>
+      <h2 lang="en">Limits of this release</h2><h2 lang="zh-Hans">这一版的局限</h2>
+      <ul class="points">
+        <li lang="en">The rule thresholds and the cost model are drafts. They need pathologist review and calibration on human readings, which the pilot in the repository is set up to collect.</li>
+        <li lang="zh-Hans">规则阈值和代价模型都是草案，需要病理医生审定，也需要用人类阅片数据校准；仓库里的试点方案就是为收集这些数据准备的。</li>
+        <li lang="en">Reports follow one protocol, sentinel lymph node metastasis. Other tasks can already be read, timed and logged, but their answers are not checked by rules yet.</li>
+        <li lang="zh-Hans">报告目前只遵循一个协议：前哨淋巴结转移。其他任务已经可以阅读、计时和记录，但答案还没有规则核验。</li>
+        <li lang="en">The rules check what a report cites, not what the cited fields show: in the replay above, E1–E3 pass although the size was never measured. The log keeps what such checks would need.</li>
+        <li lang="zh-Hans">规则核验的是报告引用了什么，而不是被引用的视野里有什么：在上面的回放里，大小从未测量过，E1–E3 却都通过了。日志里保留了做这类核验所需的全部信息。</li>
+        <li lang="en">None of the models was trained to navigate a viewer. The environment exists so that such training, and fair comparisons after it, become possible.</li>
+        <li lang="zh-Hans">这些模型都没有针对阅片器导航做过训练。SlideTwin 正是为了让这样的训练、以及训练后的公平比较成为可能。</li>
+        <li lang="en">The replays on this page are single readings by one open model. They show what a log reveals, not how well models read slides.</li>
+        <li lang="zh-Hans">本页的回放都是同一个开源模型的单次阅片，展示的是日志能揭示什么，而不是模型读片的好坏。</li>
+      </ul>
+    </section>
+
+    <section id="start" class="col">
+      <div class="eyebrow"><span>—</span><span lang="en">Use it</span><span lang="zh-Hans">使用</span></div>
+      <h2 lang="en">Get started</h2><h2 lang="zh-Hans">上手</h2>
+      <pre><code>pip install "slidetwin[all]"
+slidetwin serve --demo                    # 3 public slides, 0.9 GB, http://127.0.0.1:7860
+slidetwin mcp --slides DIR --manifest manifest.yaml   # MCP over stdio for a local agent
+slidetwin replay --demo logs/sessions/&lt;id&gt;.jsonl     # replay a reading, report differences
+
+# an open VLM through vLLM (tool calls on), read by SlideTwin's agent
+vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8000 --max-model-len 65536 \
+  --enable-auto-tool-choice --tool-call-parser hermes --limit-mm-per-prompt '{"image": 40}'
+python -m slidetwin.agents llm --backend openai --base-url http://localhost:8000/v1 \
+  --model Qwen/Qwen3-VL-8B-Instruct --env http://localhost:7860 --slide cmu1_small --max-turns 16</code></pre>
+      <h3 lang="en">Cite</h3><h3 lang="zh-Hans">引用</h3>
+      <p lang="en">If you use SlideTwin in your work, please cite it:</p>
+      <p lang="zh-Hans">如果你的工作用到了 SlideTwin，请引用：</p>
+      <div class="cite"><pre><code>@software{zhang2026slidetwin,
+  author  = {Zhang, Wenhao and Zhou, Zhongliang and Li, Sheng},
+  title   = {SlideTwin: an agent-operable whole-slide image viewer simulator},
+  year    = {2026},
+  version = {0.1.1},
+  url     = {https://github.com/wenhaozhang0066/SlideTwin}
+}</code></pre></div>
+      <h3 lang="en">Acknowledgements</h3><h3 lang="zh-Hans">致谢</h3>
+      <p lang="en">The CC0 test slides CMU-1 and CMU-1-Small-Region come from the OpenSlide test data (Carnegie Mellon University). The replays use Qwen3-VL-8B-Instruct, released by the Qwen team.</p>
+      <p lang="zh-Hans">CC0 测试切片 CMU-1 与 CMU-1-Small-Region 来自 OpenSlide 测试数据（卡内基梅隆大学）。回放中使用的模型是 Qwen 团队发布的 Qwen3-VL-8B-Instruct。</p>
+      <p class="note" lang="en">References: GIANT, Buckley et al., arXiv:2511.19652 (2025). CPathAgent, arXiv:2505.20510 (NeurIPS 2025). PathFinder, Ghezloo et al., arXiv:2502.08916 (2025). QuPath, Bankhead et al., Scientific Reports 7:16878 (2017).</p>
+      <p class="note" lang="zh-Hans">参考文献：GIANT，Buckley 等，arXiv:2511.19652（2025）。CPathAgent，arXiv:2505.20510（NeurIPS 2025）。PathFinder，Ghezloo 等，arXiv:2502.08916（2025）。QuPath，Bankhead 等，Scientific Reports 7:16878（2017）。</p>
+    </section>
+
+    <footer class="col">
+      <span lang="en">SlideTwin is a research prototype, not a medical device. Code: Apache-2.0.</span>
+      <span lang="zh-Hans">SlideTwin 是研究原型，不是医疗器械。代码采用 Apache-2.0 许可。</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+const RESULTS = {"headline": {"replayed": "365"}};
+(function () {
+  const T = {
+    en: {
+      said: "said “present”", saw: "saw the tumour at 20×", cited: "cited it (supported)",
+      spec: "specificity", cov: "tissue seen at ≥10×", req: "98% required (E4)",
+      bal: "balanced accuracy", seen20: "tumour seen at 20×", supp: "supported positive", covall: "tissue coverage",
+      vs: "virtual seconds per reading", ref: "serpentine scan", noData: "No readings yet for this design.",
+      model: "Model", org: "From", size: "Size", kind: "Kind", designs: "Designs run", readings: "Readings, all benchmarks",
+      general: "general", medical: "medical", pathology: "pathology", reasoning: "reasoning",
+      balDet: "balanced accuracy (detection)", qwk: "QWK (ISUP grade)", sawCancer: "saw cancer at 20\u00d7", citedCancer: "cited it (supported)", chance: "chance (25%)",
+      methods: {microscope: "Microscope", freecrop: "Free crops", thumbnail: "Thumbnail only", native: "SlideTwin agent", serpentine: "Serpentine scan (no model)", text: "Text only (no slide)"}
+    },
+    zh: {
+      said: "报“有转移”", saw: "曾在 20× 下看到肿瘤", cited: "引用了肿瘤（有证据支持）",
+      spec: "特异度", cov: "≥10× 下看过的组织", req: "要求 98%（E4）",
+      bal: "平衡准确率", seen20: "20× 下看到肿瘤", supp: "有证据支持的阳性", covall: "组织覆盖率",
+      vs: "每次阅片的虚拟秒数", ref: "蛇形扫描", noData: "该设计暂无阅片结果。",
+      model: "模型", org: "机构", size: "规模", kind: "类型", designs: "运行的设计", readings: "阅片次数（三个基准）",
+      general: "通用", medical: "医学", pathology: "病理", reasoning: "推理",
+      balDet: "平衡准确率（检出）", qwk: "QWK（ISUP 分级）", sawCancer: "20\u00d7 下看到癌", citedCancer: "引用了癌区（有证据支持）", chance: "随机（25%）",
+      methods: {microscope: "显微镜式", freecrop: "任意裁图", thumbnail: "仅缩略图", native: "SlideTwin 自带 agent", serpentine: "蛇形扫描（无模型）", text: "纯文字（不看切片）"}
+    }
+  };
+  const root = document.documentElement;
+  let lang = "en";
+  try { const saved = localStorage.getItem("slidetwin-lang"); if (saved === "zh" || saved === "en") lang = saved; } catch (e) {}
+  if (location.hash === "#zh") lang = "zh";
+  if (location.hash === "#en") lang = "en";
+  const css = (name) => getComputedStyle(root).getPropertyValue(name).trim();
+  const pct = (v) => v == null ? "–" : (v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0) + "%";
+  const state = { evidence: "microscope", negative: "microscope", panda: "microscope" };
+
+  function fillNumbers() {
+    if (!RESULTS) return;
+    const h = RESULTS.headline;
+    document.querySelectorAll("[data-k]").forEach((el) => {
+      const v = h[el.dataset.k];
+      if (v != null) el.textContent = v;
+    });
+  }
+
+  function modelTable() {
+    const el = document.getElementById("model-table");
+    if (!RESULTS || !el) return;
+    const t = T[lang];
+    const rows = RESULTS.models.map((m) => `<tr><td>${m.name}</td><td>${m.org}</td><td class="num">${m.size}</td><td>${m.kind.map((k) => t[k]).join(", ")}</td><td>${m.methods.map((x) => t.methods[x]).join(", ")}</td><td class="num">${m.readings}</td></tr>`).join("");
+    el.innerHTML = `<table><thead><tr><th scope="col">${t.model}</th><th scope="col">${t.org}</th><th scope="col">${t.size}</th><th scope="col">${t.kind}</th><th scope="col">${t.designs}</th><th scope="col">${t.readings}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function tabs(chart, methods, onPick) {
+    const box = document.querySelector(`.tabs[data-chart="${chart}"]`);
+    if (!box) return;
+    box.innerHTML = "";
+    methods.forEach((m) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.id = `tab-${chart}-${m}`;
+      b.textContent = T[lang].methods[m];
+      b.setAttribute("aria-pressed", String(state[chart] === m));
+      b.addEventListener("click", () => { state[chart] = m; onPick(); });
+      box.appendChild(b);
+    });
+  }
+
+  function legend(name, items) {
+    const box = document.querySelector(`[data-legend="${name}"]`);
+    if (box) box.innerHTML = items.map(([label, color]) => `<span><i style="background:${color}"></i>${label}</span>`).join("");
+  }
+
+  // Grouped horizontal bars: one row per label, one bar per series, all on one 0..max scale.
+  // Width of a chart label as the chart will draw it: a hidden SVG text inside the chart (removed on redraw).
+  function textWidth(text, size, el) {
+    const ns = "http://www.w3.org/2000/svg";
+    let probe = el.querySelector("svg.probe");
+    if (!probe) {
+      probe = document.createElementNS(ns, "svg");
+      probe.setAttribute("class", "probe");
+      probe.setAttribute("aria-hidden", "true");
+      probe.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden";
+      probe.appendChild(document.createElementNS(ns, "text"));
+      el.appendChild(probe);
+    }
+    const t = probe.firstChild;
+    t.setAttribute("font-size", size);
+    t.textContent = text;
+    return t.getComputedTextLength();
+  }
+
+  // A label too long for its column is split in two at the first kind of break it has (" · ", " (",
+  // a space, a hyphen), and a line that still does not fit is set smaller.
+  function labelLines(label, room, el) {
+    const fit = (text) => ({ text, size: Math.max(9, Math.min(12.5, (12.5 * room) / textWidth(text, 12.5, el))) });
+    const whole = textWidth(label, 12.5, el);
+    if (whole <= room) return [{ text: label, size: 12.5 }];
+    if (whole <= room * 1.12) return [fit(label)];  // a little too long: set it a little smaller
+    for (const sep of [" · ", " (", " ", "-"]) {
+      let best = null;
+      for (let i = label.indexOf(sep); i > 0; i = label.indexOf(sep, i + 1)) {
+        const a = sep === "-" ? label.slice(0, i + 1) : label.slice(0, i);
+        const b = sep === " (" ? label.slice(i + 1) : label.slice(i + sep.length);
+        const w = Math.max(textWidth(a, 12.5, el), textWidth(b, 12.5, el));
+        if (!best || w < best.w) best = { w, lines: [a, b] };
+      }
+      if (best) return best.lines.map(fit);
+    }
+    return [fit(label)];
+  }
+
+  function hbars(el, rows, series, opts) {
+    if (!el) return;
+    const width = Math.max(300, el.clientWidth || 600);
+    const longest = Math.max(0, ...rows.map((r) => textWidth(r.label, 12.5, el)));
+    const labelW = Math.round(Math.min(Math.max(110, longest + 14), Math.max(110, Math.min(240, width * 0.45))));
+    const barH = 11, gap = 3, rowGap = 14, top = opts.ref != null ? 22 : 6, axisH = 22, lineH = 14;
+    const plotW = width - labelW - 52;
+    const max = opts.max || 1;
+    const barsH = series.length * (barH + gap) - gap;
+    const labels = rows.map((r) => labelLines(r.label, labelW - 12, el));
+    const rowHs = labels.map((ls) => Math.max(barsH, ls.length * lineH));
+    const ys = [];
+    let acc = top;
+    rowHs.forEach((h) => { ys.push(acc); acc += h + rowGap; });
+    const height = acc + axisH;
+    const x = (v) => labelW + (Math.min(v, max) / max) * plotW;
+    const fmt = opts.format || pct;
+    let s = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${opts.title || ""}">`;
+    let ticks = opts.ticks || [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
+    while (ticks.length > 3 && plotW / (ticks.length - 1) < 44) ticks = ticks.filter((_, k) => k % 2 === 0);  // narrow screens
+    s += `<g class="grid">` + ticks.map((t) => `<line x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${height - axisH + 4}"/>`).join("") + `</g>`;
+    s += `<g class="axis">` + ticks.map((t) => `<text x="${x(t)}" y="${height - 6}" text-anchor="middle">${fmt(t)}</text>`).join("") + `</g>`;
+    rows.forEach((r, i) => {
+      const y0 = ys[i], h = rowHs[i], ls = labels[i];
+      const base = y0 + h / 2 + 4 - ((ls.length - 1) * lineH) / 2;
+      ls.forEach((l, k) => { s += `<text x="${labelW - 10}" y="${base + k * lineH}" text-anchor="end" font-size="${l.size.toFixed(1)}">${l.text}</text>`; });
+      const barsTop = y0 + (h - barsH) / 2;
+      series.forEach((ser, j) => {
+        const v = r.values[j];
+        const y = barsTop + j * (barH + gap);
+        if (v == null) return;
+        const end = x(Math.max(0, v));
+        s += `<rect x="${labelW}" y="${y}" width="${Math.max(0, end - labelW)}" height="${barH}" rx="2" fill="${ser.color}"/>`;
+        s += `<text class="val" x="${end + 5}" y="${y + barH - 1.5}">${(ser.format || fmt)(v)}</text>`;
+      });
+    });
+    if (opts.ref != null) {
+      s += `<g class="ref"><line x1="${x(opts.ref)}" x2="${x(opts.ref)}" y1="${top - 4}" y2="${height - axisH + 4}"/><text x="${x(opts.ref) - 4}" y="${top - 9}" text-anchor="end">${opts.refLabel || ""}</text></g>`;
+    }
+    s += `</svg>`;
+    el.innerHTML = s;
+  }
+
+  function groupsFor(method) {
+    return RESULTS.groups.filter((g) => g.method === method && g.model !== "no VLM");
+  }
+
+  function drawEvidence() {
+    const t = T[lang];
+    const methods = RESULTS.methods.filter((m) => groupsFor(m).length);
+    if (!methods.includes(state.evidence)) state.evidence = methods[0];
+    tabs("evidence", methods, drawEvidence);
+    const series = [{ color: css("--bar-soft") }, { color: css("--eosin") }, { color: css("--hema") }];
+    legend("evidence", [[t.said, css("--bar-soft")], [t.saw, css("--eosin")], [t.cited, css("--hema")]]);
+    const rows = groupsFor(state.evidence).map((g) => ({ label: RESULTS.names[g.model] || g.model, values: [g.sensitivity, g.lesion_seen_20x, g.supported_sensitivity] }));
+    const el = document.getElementById("chart-evidence");
+    if (!el) return;
+    if (!rows.length) { el.textContent = t.noData; return; }
+    hbars(el, rows, series, { max: 1 });
+  }
+
+  function drawNegative() {
+    const t = T[lang];
+    const methods = RESULTS.methods.filter((m) => groupsFor(m).length);
+    if (!methods.includes(state.negative)) state.negative = methods[0];
+    tabs("negative", methods, drawNegative);
+    const series = [{ color: css("--teal") }, { color: css("--eosin") }];
+    legend("negative", [[t.spec, css("--teal")], [t.cov, css("--eosin")]]);
+    const rows = groupsFor(state.negative).map((g) => ({ label: RESULTS.names[g.model] || g.model, values: [g.specificity, g.coverage_normal] }));
+    const ref = RESULTS.groups.find((g) => g.model === "no VLM");
+    if (ref) rows.push({ label: t.methods.serpentine, values: [null, ref.coverage_normal] });
+    hbars(document.getElementById("chart-negative"), rows, series, { max: 1, ref: 0.98, refLabel: t.req });
+  }
+
+  function drawDesigns() {
+    const t = T[lang];
+    const cols = [["balanced_accuracy", css("--bar-soft"), t.bal], ["lesion_seen_20x", css("--eosin"), t.seen20], ["supported_sensitivity", css("--hema"), t.supp], ["coverage", css("--teal"), t.covall]];
+    legend("designs", cols.map((c) => [c[2], c[1]]));
+    const rows = RESULTS.pooled.map((g) => ({ label: t.methods[g.method] || g.method, values: cols.map((c) => g[c[0]]) }));
+    const ref = RESULTS.groups.find((g) => g.model === "no VLM");
+    if (ref) rows.push({ label: t.methods.serpentine, values: cols.map((c) => (c[0] === "coverage" ? ref[c[0]] : null)) });
+    hbars(document.getElementById("chart-designs"), rows, cols.map((c) => ({ color: c[1] })), { max: 1 });
+  }
+
+  function drawCost() {
+    const t = T[lang];
+    const rows = RESULTS.groups.filter((g) => g.method === "microscope" || g.method === "native" || g.model === "no VLM")
+      .map((g) => ({ label: g.model === "no VLM" ? t.methods.serpentine : `${RESULTS.names[g.model] || g.model} · ${t.methods[g.method]}`, values: [g.virtual_s] }));
+    const max = Math.max(...rows.map((r) => r.values[0] || 0)) * 1.08 || 1;
+    const step = max > 600 ? 120 : max > 200 ? 60 : max > 60 ? 20 : 5;
+    const ticks = []; for (let v = 0; v <= max; v += step) ticks.push(v);
+    hbars(document.getElementById("chart-cost"), rows, [{ color: css("--hema") }], { max, ticks, format: (v) => v == null ? "–" : `${Math.round(v)} s` });
+  }
+
+  function resultsTable() {
+    const el = document.getElementById("results-table");
+    if (!el || !RESULTS) return;
+    const t = T[lang];
+    const head = lang === "zh"
+      ? ["模型", "设计", "阅片数", "平衡准确率", "灵敏度", "特异度", "20\u00d7 看到肿瘤", "有证据支持的灵敏度", "覆盖率", "虚拟秒", "模型调用"]
+      : ["Model", "Design", "Readings", "Balanced acc.", "Sensitivity", "Specificity", "Tumour seen at 20\u00d7", "Supported sens.", "Coverage", "Virtual s", "Model calls"];
+    const num = (v, d = 1) => v == null ? "\u2013" : Number(v).toFixed(d);
+    const rows = RESULTS.groups.map((g) => {
+      const name = g.model === "no VLM" ? t.methods.serpentine : (RESULTS.names[g.model] || g.model);
+      const design = g.model === "no VLM" ? "\u2013" : t.methods[g.method];
+      const ref = g.model === "no VLM";  // a coverage reference, not a diagnostic reader
+      const dx = (v) => (ref ? "\u2013" : pct(v));
+      return `<tr><td>${name}</td><td>${design}</td><td class="num">${g.n}</td><td class="num">${dx(g.balanced_accuracy)}</td><td class="num">${dx(g.sensitivity)}</td><td class="num">${dx(g.specificity)}</td><td class="num">${dx(g.lesion_seen_20x)}</td><td class="num">${dx(g.supported_sensitivity)}</td><td class="num">${pct(g.coverage)}</td><td class="num">${num(g.virtual_s)}</td><td class="num">${num(g.model_calls)}</td></tr>`;
+    }).join("");
+    el.innerHTML = `<table><thead><tr>${head.map((h) => `<th scope="col">${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  const kappa = (v) => (v == null ? "\u2013" : (v < 0 ? "\u2212" : "") + Math.abs(v).toFixed(2));
+
+  function xGroups(task, method) {
+    return ((RESULTS.x && RESULTS.x[task]) || { groups: [] }).groups.filter((g) => !method || g.method === method);
+  }
+
+  function drawPanda() {
+    const t = T[lang];
+    const el = document.getElementById("chart-panda");
+    if (!el) return;
+    const methods = ["microscope", "freecrop", "thumbnail"].filter((m) => xGroups("panda", m).length);
+    if (!methods.length) { el.textContent = t.noData; return; }
+    if (!methods.includes(state.panda)) state.panda = methods[0];
+    tabs("panda", methods, drawPanda);
+    const cols = [["balanced_accuracy", css("--bar-soft"), t.balDet, pct], ["qwk", css("--teal"), t.qwk, kappa],
+                  ["cancer_seen_20x", css("--eosin"), t.sawCancer, pct], ["supported_sensitivity", css("--hema"), t.citedCancer, pct]];
+    legend("panda", cols.map((c) => [c[2], c[1]]));
+    const rows = xGroups("panda", state.panda).map((g) => ({ label: RESULTS.names[g.model] || g.model, values: cols.map((c) => g[c[0]]) }));
+    hbars(el, rows, cols.map((c) => ({ color: c[1], format: c[3] })), { max: 1 });
+  }
+
+  function drawVqa() {
+    const t = T[lang];
+    const el = document.getElementById("chart-vqa");
+    if (!el) return;
+    const designs = [["text", css("--grey"), t.methods.text], ["thumbnail", css("--bar-soft"), t.methods.thumbnail],
+                     ["freecrop", css("--eosin"), t.methods.freecrop], ["microscope", css("--hema"), t.methods.microscope]];
+    legend("vqa", designs.map((d) => [d[2], d[1]]));
+    const models = [...new Set(xGroups("vqa").map((g) => g.model))];
+    if (!models.length) { el.textContent = t.noData; return; }
+    const rows = models.map((m) => ({ label: RESULTS.names[m] || m,
+      values: designs.map((d) => (xGroups("vqa", d[0]).find((g) => g.model === m) || {}).accuracy) }));
+    hbars(el, rows, designs.map((d) => ({ color: d[1] })), { max: 1, ref: 0.25, refLabel: t.chance });
+  }
+
+  function findings() {
+    if (!RESULTS) return;
+    ["en", "zh"].forEach((l) => {
+      const el = document.getElementById(`findings-${l}`);
+      if (el) el.innerHTML = (RESULTS.findings[l] || []).map((f) => `<li><span>${f}</span></li>`).join("");
+      const ex = document.getElementById(`findings-x-${l}`);
+      if (ex) ex.innerHTML = ((RESULTS.findings_x || {})[l] || []).map((f) => `<li><span>${f}</span></li>`).join("");
+    });
+  }
+
+  function render() {
+    root.dataset.lang = lang;
+    root.lang = lang === "zh" ? "zh-Hans" : "en";
+    document.querySelectorAll("[data-set-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.setLang === lang)));
+    if (!RESULTS) return;
+    fillNumbers();
+    if (!RESULTS.groups) return;  // the public page carries no benchmark data
+    modelTable(); resultsTable(); findings();
+    drawEvidence(); drawNegative(); drawDesigns(); drawCost(); drawPanda(); drawVqa();
+  }
+
+  document.querySelectorAll("[data-set-lang]").forEach((b) => b.addEventListener("click", () => {
+    lang = b.dataset.setLang;
+    try { localStorage.setItem("slidetwin-lang", lang); } catch (e) {}
+    render();
+  }));
+  const copy = document.getElementById("copy-install");
+  copy.addEventListener("click", () => {
+    const text = document.getElementById("install-cmd").textContent;
+    const done = () => { copy.dataset.done = "1"; setTimeout(() => delete copy.dataset.done, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => window.getSelection().selectAllChildren(document.getElementById("install-cmd")));
+    else window.getSelection().selectAllChildren(document.getElementById("install-cmd"));
+  });
+  let resizeTimer;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+  if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", render);
+  if (document.fonts) {  // chart labels are measured in the web font: draw again once it has loaded
+    document.fonts.ready.then(render);
+    document.fonts.addEventListener?.("loadingdone", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 100); });
+  }
+
+  // Highlight the section in view in the contents rail.
+  const links = [...document.querySelectorAll(".rail a")];
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (e.isIntersecting) links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + e.target.id));
+    }), { rootMargin: "-40% 0px -55% 0px" });
+    document.querySelectorAll("main section[id]").forEach((s) => io.observe(s));
+  }
+  render();
+})();
+</script>
+
+</body>
+</html>
