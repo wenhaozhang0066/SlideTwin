@@ -110,7 +110,7 @@ h1 em[lang="zh-Hans"] { font-style: normal; font-family: "Noto Serif SC", var(--
 .warn { margin-top: 0.9rem; font-size: 0.85rem; color: var(--muted); }
 
 figure { margin: 2rem 0; }
-figure img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--rule); background: var(--surface); }
+figure img, figure video { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--rule); background: var(--surface); }
 figcaption { font-size: 0.88rem; color: var(--muted); margin-top: 0.6rem; line-height: 1.5; max-width: 46rem; }
 .teaser, .wide { max-width: 60rem; }
 .fig-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; max-width: 60rem; }
@@ -246,9 +246,9 @@ footer { border-top: 1px solid var(--rule); margin-top: 4rem; padding-block: 1.6
     </div>
 
     <figure class="teaser">
-      <img src="assets/reading.gif" width="960" height="600" alt="A reading of the CC0 test slide in the SlideTwin web UI: overview, preset magnifications, a measurement in micrometres, a polygon and the report receipt.">
-      <figcaption lang="en">A reading in the web UI, on a CC0 test slide (OpenSlide test data): the slide overview, preset magnifications, a 153 µm measurement at 20×, a polygon and the report receipt. Each frame was served by one logged action.</figcaption>
-      <figcaption lang="zh-Hans">在网页界面中阅读一张 CC0 测试切片（OpenSlide 测试数据）：切片概览、预设倍率、20× 下 153 µm 的测量、多边形标注和报告回执。每一帧都由一次有记录的操作提供。</figcaption>
+      <video src="assets/reading.mp4" poster="assets/reading.jpg" width="1920" height="1200" autoplay muted loop playsinline preload="metadata" aria-label="A reading of the CC0 test slide in the SlideTwin web UI: overview, preset magnifications, a measurement in micrometres, a polygon and the report receipt."></video>
+      <figcaption lang="en">A reading in the web UI, on a CC0 test slide (OpenSlide test data): the slide overview, preset magnifications, a 188 µm measurement at 20×, a polygon and the report receipt. Each frame was served by one logged action.</figcaption>
+      <figcaption lang="zh-Hans">在网页界面中阅读一张 CC0 测试切片（OpenSlide 测试数据）：切片概览、预设倍率、20× 下 188 µm 的测量、多边形标注和报告回执。每一帧都由一次有记录的操作提供。</figcaption>
     </figure>
 
     <div class="tldr">
@@ -406,7 +406,7 @@ with Env(demo_manifest()) as env:
         <p lang="zh-Hans">我们让一个开源模型 Qwen3-VL-8B 在显微镜规则下阅读一张 CC0 测试切片（CMU-1：皮肤组织，四块组织分布在 23 × 16 mm 范围内），并把日志渲染出来。它从概览直接跳到 20×，落在组织块之间的空白玻璃上，连续平移了七次；等视野终于碰到一块组织的边缘，它就报告了“淋巴结组织中”一个 0.8 mm 的微转移。回执的 E1–E3 都通过：引用的视野存在、在 20× 下看过，0.8 mm 也落在微转移的范围内，尽管模型从未做过任何测量。只看最终答案会掩盖日志揭示的事实：在 7 秒虚拟时间里，它只在 10× 以上看过 0.4% 的组织。</p>
       </div>
       <figure class="wide">
-        <a href="assets/replay_cmu1.gif" target="_blank" rel="noopener"><img src="assets/replay_cmu1.gif" width="1200" height="616" loading="lazy" alt="Qwen3-VL-8B's reading of the CC0 slide CMU-1 replayed step by step: a jump to 20x on empty glass, seven pans, a report of a micro-metastasis, and the single field it cites at the edge of a tissue piece."></a>
+        <a href="assets/replay_cmu1.mp4" target="_blank" rel="noopener"><video src="assets/replay_cmu1.mp4" poster="assets/replay_cmu1.jpg" width="2400" height="1232" autoplay muted loop playsinline preload="metadata" aria-label="Qwen3-VL-8B's reading of the CC0 slide CMU-1 replayed step by step: a jump to 20x on empty glass, seven pans, a report of a micro-metastasis, and the single field it cites at the edge of a tissue piece."></video></a>
         <figcaption lang="en">Replayed from the log. Left: the overview with each field of view (grey below 10×, rose at 20×). Right: the image the model received at that step. Last frame: the field its finding cites.</figcaption>
         <figcaption lang="zh-Hans">由日志回放。左：概览图及每个视野（灰色为 10× 以下，玫红为 20×）。右：模型在这一步收到的图像。最后一帧：其发现所引用的视野。</figcaption>
       </figure>
@@ -415,7 +415,7 @@ with Env(demo_manifest()) as env:
         <p lang="zh-Hans">阴性结论需要的恰恰相反：按规则 E4，要在 10× 以上看过 98% 的组织，“未见转移”才成立。在同一个虚拟时钟下，SlideTwin 的蛇形扫描在这张切片上大约需要两分钟才能做到。</p>
       </div>
       <figure class="wide">
-        <a href="assets/race_cmu1.gif" target="_blank" rel="noopener"><img src="assets/race_cmu1.gif" width="1200" height="590" loading="lazy" alt="Two copies of the CMU-1 overview on one virtual clock: on the left the model's reading stops after 7 seconds with almost no tissue seen at 10x; on the right the serpentine scan colours all four tissue pieces as seen by 1 minute 59 seconds."></a>
+        <a href="assets/race_cmu1.mp4" target="_blank" rel="noopener"><video src="assets/race_cmu1.mp4" poster="assets/race_cmu1.jpg" width="2400" height="1180" autoplay muted loop playsinline preload="metadata" aria-label="Two copies of the CMU-1 overview on one virtual clock: on the left the model's reading stops after 7 seconds with almost no tissue seen at 10x; on the right the serpentine scan colours all four tissue pieces as seen by 1 minute 59 seconds."></video></a>
         <figcaption lang="en">Tissue seen at 10× or more (teal) as the virtual clock runs: Qwen3-VL-8B reported after 7 s with 0.4% seen; the serpentine scan had seen 100% at 1:59.</figcaption>
         <figcaption lang="zh-Hans">随虚拟时钟推进、在 10× 以上看过的组织（青色）：Qwen3-VL-8B 在 7 秒时给出报告，只看了 0.4%；蛇形扫描在 1:59 时看完了 100%。</figcaption>
       </figure>
@@ -435,7 +435,7 @@ with Env(demo_manifest()) as env:
         <div class="fail"><span>E4</span><span>fail</span><span lang="en">The negative claim “no extranodal extension” gives its scope as free text, not a tissue piece or a region, so its coverage cannot be checked (78% of the tissue was seen at 10× or more).</span><span lang="zh-Hans">阴性结论“无结外侵犯”的范围写成了自由文本，而不是组织块或区域，因此无法核验其覆盖率（10× 以上实际看过 78% 的组织）。</span></div>
       </div>
       <figure class="wide">
-        <a href="assets/replay_cmu1_small.gif" target="_blank" rel="noopener"><img src="assets/replay_cmu1_small.gif" width="1200" height="616" loading="lazy" alt="The reading replayed step by step: the fields of view on the slide overview next to the image the agent received, two 200 micrometre measurements at 20x, the report with its receipt, and the field the finding cites."></a>
+        <a href="assets/replay_cmu1_small.mp4" target="_blank" rel="noopener"><video src="assets/replay_cmu1_small.mp4" poster="assets/replay_cmu1_small.jpg" width="2400" height="1232" autoplay muted loop playsinline preload="metadata" aria-label="The reading replayed step by step: the fields of view on the slide overview next to the image the agent received, two 200 micrometre measurements at 20x, the report with its receipt, and the field the finding cites."></video></a>
         <figcaption lang="en">The same reading replayed from its log: each step's field of view on the overview (teal 10×, rose 20×) next to the image the agent received; the last frame shows the field its finding cites.</figcaption>
         <figcaption lang="zh-Hans">由日志回放的同一次阅片：概览图上每一步的视野（青色 10×，玫红 20×），旁边是 agent 收到的图像；最后一帧是其发现所引用的视野。</figcaption>
       </figure>
@@ -805,6 +805,21 @@ const RESULTS = {"headline": {"replayed": "365"}};
   if (document.fonts) {  // chart labels are measured in the web font: draw again once it has loaded
     document.fonts.ready.then(render);
     document.fonts.addEventListener?.("loadingdone", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 100); });
+  }
+
+  // Looping videos stand in for animated GIFs: they play only while visible, and not at all for
+  // readers who ask for reduced motion (they get the poster and the controls instead).
+  const videos = [...document.querySelectorAll("video[autoplay]")];
+  const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  videos.forEach((v) => {
+    v.muted = true;
+    if (still) { v.removeAttribute("autoplay"); v.pause(); v.controls = true; }
+  });
+  if (!still && "IntersectionObserver" in window) {
+    const vo = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (e.isIntersecting) e.target.play().catch(() => {}); else e.target.pause();
+    }), { threshold: 0.2 });
+    videos.forEach((v) => vo.observe(v));
   }
 
   // Highlight the section in view in the contents rail.
